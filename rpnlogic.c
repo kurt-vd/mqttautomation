@@ -324,6 +324,51 @@ static int rpn_do_pulse(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+/* event functions */
+static int rpn_do_edge(struct stack *st, struct rpn *me)
+{
+	int inval;
+
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+
+	inval = (int)st->v[st->n-1];
+	st->v[st->n-1] = inval != me->cookie;
+	me->cookie = inval;
+	return 0;
+}
+
+static int rpn_do_rising(struct stack *st, struct rpn *me)
+{
+	int inval;
+
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+
+	inval = (int)st->v[st->n-1];
+	/* set output on rising edge */
+	st->v[st->n-1] = inval && !me->cookie;
+	me->cookie = inval;
+	return 0;
+}
+
+static int rpn_do_falling(struct stack *st, struct rpn *me)
+{
+	int inval;
+
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+
+	inval = (int)st->v[st->n-1];
+	/* set output on rising edge */
+	st->v[st->n-1] = !inval && me->cookie;
+	me->cookie = inval;
+	return 0;
+}
+
 /* run time functions */
 void rpn_stack_reset(struct stack *st)
 {
@@ -373,6 +418,12 @@ static struct lookup {
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
 	{ "pulse", rpn_do_pulse, },
+
+	{ "edge", rpn_do_edge, },
+	{ "rising", rpn_do_rising, },
+	{ "falling", rpn_do_falling, },
+	{ "changed", rpn_do_edge, },
+	{ "pushed", rpn_do_rising, },
 	{ "", },
 };
 

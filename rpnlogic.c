@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <syslog.h>
 
@@ -369,6 +370,39 @@ static int rpn_do_falling(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+/* date/time functions */
+static inline int next_minute(struct tm *tm)
+{
+	int next;
+
+	next = 60 - tm->tm_sec;
+	return (next <= 0 || next > 60) ? 60 : next;
+}
+
+static int rpn_do_timeofday(struct stack *st, struct rpn *me)
+{
+	time_t t;
+	struct tm *tm;
+
+	time(&t);
+	tm = localtime(&t);
+	rpn_push(st, tm->tm_hour + tm->tm_min/60.0 + tm->tm_sec/3600.0);
+	libt_add_timeout(next_minute(tm), rpn_run_again, me->dat);
+	return 0;
+}
+
+static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
+{
+	time_t t;
+	struct tm *tm;
+
+	time(&t);
+	tm = localtime(&t);
+	rpn_push(st, tm->tm_wday ?: 7 /* push 7 for sunday */);
+	libt_add_timeout(next_minute(tm), rpn_run_again, me->dat);
+	return 0;
+}
+
 /* run time functions */
 void rpn_stack_reset(struct stack *st)
 {
@@ -424,6 +458,9 @@ static struct lookup {
 	{ "falling", rpn_do_falling, },
 	{ "changed", rpn_do_edge, },
 	{ "pushed", rpn_do_rising, },
+
+	{ "timeofday", rpn_do_timeofday, },
+	{ "dayofweek", rpn_do_dayofweek, },
 	{ "", },
 };
 

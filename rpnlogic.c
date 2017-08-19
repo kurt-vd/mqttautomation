@@ -391,7 +391,7 @@ static const char digits[] = "0123456789";
 struct rpn *rpn_parse(const char *cstr, void *dat)
 {
 	char *savedstr;
-	char *tok;
+	char *tok, *endp;
 	struct rpn *root = NULL, *last = NULL, *rpn;
 	const struct lookup *lookup;
 
@@ -400,7 +400,11 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
 			rpn = rpn_create();
 			rpn->run = rpn_do_const;
-			rpn->value = strtod(tok, NULL);
+			rpn->value = strtod(tok, &endp);
+			if (*endp && strchr(":h'", *endp))
+				rpn->value += strtod(endp+1, &endp)/60;
+			if (*endp && strchr(":m\"", *endp))
+				rpn->value += strtod(endp+1, &endp)/3600;
 
 		} else if (tok[0] == '$' && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
 			rpn = rpn_create();

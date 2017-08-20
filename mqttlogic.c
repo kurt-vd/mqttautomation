@@ -248,7 +248,7 @@ static void drop_item(struct item *it)
 	free(it);
 }
 
-static void do_item(struct item *it)
+static void _do_item(struct item *it, struct topic *trigger)
 {
 	int ret;
 	char buf[32];
@@ -262,16 +262,29 @@ static void do_item(struct item *it)
 	/* test if we found something new */
 	if (!strcmp(it->lastvalue ?: "", buf))
 		return;
+	else if (trigger && !strcmp(trigger->topic, it->topic)) {
+		/* This new calculation is triggered by the topic itself: beware loops */
+		if (!strcmp(buf, trigger->value ?: ""))
+			/* our result changed to the current value: ok
+			 * no need to republish
+			 */
+			goto save_cache;
+		mylog(LOG_WARNING, "logic for '%s': avoid endless loop (was %s, new %s)", it->topic, it->lastvalue, buf);
+		return;
+	}
+
 	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(buf), buf, mqtt_qos, !mqtt_write_suffix);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
 		return;
 	}
 	/* save cache */
+save_cache:
 	if (it->lastvalue)
 		free(it->lastvalue);
 	it->lastvalue = strdup(buf);
 }
+#define do_item(it)	_do_item(it, NULL)
 void rpn_run_again(void *dat)
 {
 	return do_item(dat);
@@ -324,11 +337,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	topic->value = strndup(msg->payload ?: "", msg->payloadlen);
 	if (topic->ref) {
 		for (it = items; it; it = it->next) {
-			if (!strcmp(it->topic, msg->topic))
-				/* cut loops */
-				continue;
 			if (rpn_has_ref(it->logic, msg->topic))
-				do_item(it);
+				_do_item(it, topic);
 		}
 	}
 }

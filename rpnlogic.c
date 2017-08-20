@@ -110,6 +110,22 @@ static int rpn_do_limit(struct stack *st, struct rpn *me)
 	return 1;
 }
 
+static int rpn_do_inrange(struct stack *st, struct rpn *me)
+{
+	if (st->n < 3)
+		/* stack underflow */
+		return -1;
+	/* limit x-3 between x-2 & x-1 */
+	if (st->v[st->n-2] < st->v[st->n-1])
+		/* regular case: DUT min max */
+		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) && (st->v[st->n-3] <= st->v[st->n-1]);
+	else
+		/* regular case: DUT max min */
+		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) || (st->v[st->n-3] <= st->v[st->n-1]);
+	st->n -= 2;
+	return 1;
+}
+
 /* bitwise */
 static int rpn_do_bitand(struct stack *st, struct rpn *me)
 {
@@ -447,7 +463,8 @@ static struct lookup {
 	{ "dup", rpn_do_dup, },
 	{ "swap", rpn_do_swap, },
 
-	{ "lim", rpn_do_limit, },
+	{ "limit", rpn_do_limit, },
+	{ "inrange", rpn_do_inrange, },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

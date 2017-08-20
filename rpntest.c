@@ -8,9 +8,9 @@
 
 static struct stack rpnstack;
 
-double rpn_lookup_env(const char *str, struct rpn *rpn)
+const char *rpn_lookup_env(const char *str, struct rpn *rpn)
 {
-	return strtod(getenv(str) ?: "0", NULL);
+	return getenv(str);
 }
 void rpn_run_again(void *dat)
 {

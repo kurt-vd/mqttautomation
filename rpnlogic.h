@@ -27,7 +27,8 @@ void rpn_free_chain(struct rpn *rpn);
 void rpn_rebase(struct rpn *first, struct rpn **newptr);
 
 /* imported function */
-extern double rpn_lookup_env(const char *str, struct rpn *);
+extern const char *rpn_lookup_env(const char *str, struct rpn *);
 extern void rpn_run_again(void *dat);
 
+extern double rpn_strtod(const char *str, char **endp);
 #endif

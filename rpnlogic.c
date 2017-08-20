@@ -48,6 +48,30 @@ void rpn_free_chain(struct rpn *rpn)
 	}
 }
 
+double rpn_strtod(const char *str, char **endp)
+{
+	char *localendp;
+	double value;
+
+	if (!endp)
+		endp = &localendp;
+	value = strtod(str ?: "nan", endp);
+	if (**endp && strchr(":h'", **endp))
+		value += strtod((*endp)+1, endp)/60;
+	if (**endp && strchr(":m\"", **endp))
+		value += strtod((*endp)+1, endp)/3600;
+	return (*endp == str) ? NAN : value;
+}
+
+static inline int rpn_toint(double val)
+{
+	/* provide a NAN-safe int conversion */
+	if (isnan(val))
+		return 0;
+	else
+		return (int)val;
+}
+
 /* algebra */
 static int rpn_do_plus(struct stack *st, struct rpn *me)
 {
@@ -119,9 +143,11 @@ static int rpn_do_inrange(struct stack *st, struct rpn *me)
 	if (st->v[st->n-2] < st->v[st->n-1])
 		/* regular case: DUT min max */
 		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) && (st->v[st->n-3] <= st->v[st->n-1]);
-	else
+	else if (st->v[st->n-2] > st->v[st->n-1])
 		/* regular case: DUT max min */
 		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) || (st->v[st->n-3] <= st->v[st->n-1]);
+	else
+		st->v[st->n-3] = 0;
 	st->n -= 2;
 	return 1;
 }
@@ -132,7 +158,7 @@ static int rpn_do_bitand(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = (int)st->v[st->n-2] & (int)st->v[st->n-1];
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) & rpn_toint(st->v[st->n-1]);
 	st->n -= 1;
 	return 0;
 }
@@ -141,7 +167,7 @@ static int rpn_do_bitor(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = (int)st->v[st->n-2] | (int)st->v[st->n-1];
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) | rpn_toint(st->v[st->n-1]);
 	st->n -= 1;
 	return 0;
 }
@@ -150,7 +176,7 @@ static int rpn_do_bitxor(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = (int)st->v[st->n-2] ^ (int)st->v[st->n-1];
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) ^ rpn_toint(st->v[st->n-1]);
 	st->n -= 1;
 	return 0;
 }
@@ -159,7 +185,7 @@ static int rpn_do_bitinv(struct stack *st, struct rpn *me)
 	if (st->n < 1)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-1] = ~(int)st->v[st->n-1];
+	st->v[st->n-1] = ~rpn_toint(st->v[st->n-1]);
 	return 0;
 }
 
@@ -169,7 +195,7 @@ static int rpn_do_booland(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = (int)st->v[st->n-2] && (int)st->v[st->n-1];
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) && rpn_toint(st->v[st->n-1]);
 	st->n -= 1;
 	return 0;
 }
@@ -178,7 +204,7 @@ static int rpn_do_boolor(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = (int)st->v[st->n-2] || (int)st->v[st->n-1];
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) || rpn_toint(st->v[st->n-1]);
 	st->n -= 1;
 	return 0;
 }
@@ -187,7 +213,7 @@ static int rpn_do_boolnot(struct stack *st, struct rpn *me)
 	if (st->n < 1)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-1] = !(int)st->v[st->n-1];
+	st->v[st->n-1] = !rpn_toint(st->v[st->n-1]);
 	return 0;
 }
 
@@ -197,7 +223,7 @@ static int rpn_do_lt(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = st->v[st->n-2] < (int)st->v[st->n-1];
+	st->v[st->n-2] = st->v[st->n-2] < st->v[st->n-1];
 	st->n -= 1;
 	return 0;
 }
@@ -206,7 +232,7 @@ static int rpn_do_gt(struct stack *st, struct rpn *me)
 	if (st->n < 2)
 		/* stack underflow */
 		return -1;
-	st->v[st->n-2] = st->v[st->n-2] > (int)st->v[st->n-1];
+	st->v[st->n-2] = st->v[st->n-2] > st->v[st->n-1];
 	st->n -= 1;
 	return 0;
 }
@@ -231,7 +257,7 @@ static int rpn_do_const(struct stack *st, struct rpn *me)
 
 static int rpn_do_env(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_lookup_env(me->topic, me));
+	rpn_push(st, rpn_strtod(rpn_lookup_env(me->topic, me), NULL));
 	return 0;
 }
 
@@ -273,7 +299,7 @@ static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-2];
+	inval = rpn_toint(st->v[st->n-2]);
 
 	if (!inval && (me->cookie & 1))
 		/* falling edge: schedule timeout */
@@ -298,7 +324,7 @@ static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-2];
+	inval = rpn_toint(st->v[st->n-2]);
 
 	if (inval && !(me->cookie & 1))
 		/* rising edge: schedule timeout */
@@ -323,7 +349,7 @@ static int rpn_do_pulse(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-2];
+	inval = rpn_toint(st->v[st->n-2]);
 
 	if (inval && !(me->cookie & 1)) {
 		/* rising edge: schedule timeout */
@@ -350,7 +376,7 @@ static int rpn_do_edge(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-1];
+	inval = rpn_toint(st->v[st->n-1]);
 	st->v[st->n-1] = inval != me->cookie;
 	me->cookie = inval;
 	return 0;
@@ -364,7 +390,7 @@ static int rpn_do_rising(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-1];
+	inval = rpn_toint(st->v[st->n-1]);
 	/* set output on rising edge */
 	st->v[st->n-1] = inval && !me->cookie;
 	me->cookie = inval;
@@ -379,7 +405,7 @@ static int rpn_do_falling(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	inval = (int)st->v[st->n-1];
+	inval = rpn_toint(st->v[st->n-1]);
 	/* set output on rising edge */
 	st->v[st->n-1] = !inval && me->cookie;
 	me->cookie = inval;
@@ -496,7 +522,7 @@ static const char digits[] = "0123456789";
 struct rpn *rpn_parse(const char *cstr, void *dat)
 {
 	char *savedstr;
-	char *tok, *endp;
+	char *tok;
 	struct rpn *root = NULL, *last = NULL, *rpn;
 	const struct lookup *lookup;
 
@@ -505,11 +531,7 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
 			rpn = rpn_create();
 			rpn->run = rpn_do_const;
-			rpn->value = strtod(tok, &endp);
-			if (*endp && strchr(":h'", *endp))
-				rpn->value += strtod(endp+1, &endp)/60;
-			if (*endp && strchr(":m\"", *endp))
-				rpn->value += strtod(endp+1, &endp)/3600;
+			rpn->value = rpn_strtod(tok, NULL);
 
 		} else if (tok[0] == '$' && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
 			rpn = rpn_create();

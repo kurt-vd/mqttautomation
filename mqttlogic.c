@@ -164,16 +164,16 @@ struct topic *get_topic(const char *name, int create)
 	return topic;
 }
 
-double rpn_lookup_env(const char *name, struct rpn *rpn)
+const char *rpn_lookup_env(const char *name, struct rpn *rpn)
 {
 	struct topic *topic;
 
 	topic = get_topic(name, 0);
 	if (!topic) {
 		mylog(LOG_INFO, "topic %s not found", name);
-		return NAN;
+		return NULL;
 	}
-	return strtod(topic->value, NULL);
+	return topic->value;
 }
 
 /* logic items */

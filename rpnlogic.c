@@ -281,6 +281,16 @@ static int rpn_do_swap(struct stack *st, struct rpn *me)
 	st->v[st->n-1] = tmp;
 	return 0;
 }
+static int rpn_do_ifthenelse(struct stack *st, struct rpn *me)
+{
+	if (st->n < 3)
+		/* stack underflow */
+		return -1;
+
+	st->v[st->n-3] = rpn_toint(st->v[st->n-3]) ? st->v[st->n-2] : st->v[st->n-1];
+	st->n -= 2;
+	return 0;
+}
 
 /* timer functions */
 static void on_delay(void *dat)
@@ -488,6 +498,7 @@ static struct lookup {
 
 	{ "dup", rpn_do_dup, },
 	{ "swap", rpn_do_swap, },
+	{ "?:", rpn_do_ifthenelse, },
 
 	{ "limit", rpn_do_limit, },
 	{ "inrange", rpn_do_inrange, },

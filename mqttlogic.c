@@ -176,6 +176,23 @@ const char *rpn_lookup_env(const char *name, struct rpn *rpn)
 	return topic->value;
 }
 
+/* replace all relative topic references to absolute */
+static void rpn_resolve_relative(struct rpn *rpn, const char *topic)
+{
+	char *abstopic;
+
+	for (; rpn; rpn = rpn->next) {
+		if (!rpn->topic || strncmp(rpn->topic, "./", 2))
+			continue;
+		abstopic = malloc(strlen(rpn->topic) + strlen(topic) + 1);
+		if (!abstopic)
+			mylog(LOG_ERR, "malloc absolute topic");
+		sprintf(abstopic, "%s/%s", topic, rpn->topic +2);
+		free(rpn->topic);
+		rpn->topic = abstopic;
+	}
+}
+
 /* logic items */
 static void rpn_add_ref(struct rpn *rpn, int add)
 {
@@ -323,6 +340,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			/* TODO: verify this format string */
 		}
 		it->logic = rpn_parse(msg->payload, it);
+		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
 		mylog(LOG_INFO, "new logic for %s", it->topic);
 		/* ready, first run */

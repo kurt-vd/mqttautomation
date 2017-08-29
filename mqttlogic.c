@@ -102,6 +102,7 @@ struct topic {
 	char *topic;
 	char *value;
 	int ref;
+	int isnew;
 };
 static struct topic *topics;
 static int ntopics; /* used topics */
@@ -164,11 +165,18 @@ struct topic *get_topic(const char *name, int create)
 	return topic;
 }
 
+static struct topic *lastrpntopic;
+int rpn_env_isnew(void)
+{
+	return lastrpntopic->isnew;
+}
+
 const char *rpn_lookup_env(const char *name, struct rpn *rpn)
 {
 	struct topic *topic;
 
 	topic = get_topic(name, 0);
+	lastrpntopic = topic;
 	if (!topic) {
 		mylog(LOG_INFO, "topic %s not found", name);
 		return NULL;
@@ -270,8 +278,11 @@ static void _do_item(struct item *it, struct topic *trigger)
 	int ret;
 	char buf[32];
 
+	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
+	trigger->isnew = 1;
 	ret = rpn_run(&rpnstack, it->logic);
+	trigger->isnew = 0;
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;

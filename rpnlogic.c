@@ -298,7 +298,7 @@ static void on_delay(void *dat)
 	struct rpn *me = dat;
 
 	/* clear output */
-	me->cookie ^= 2;
+	me->cookie ^= 1;
 	rpn_run_again(me->dat);
 }
 static int rpn_do_offdelay(struct stack *st, struct rpn *me)
@@ -311,18 +311,19 @@ static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 
 	inval = rpn_toint(st->v[st->n-2]);
 
-	if (!inval && (me->cookie & 1))
+	if (!inval && (me->cookie & 2)) {
 		/* falling edge: schedule timeout */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
-	else if (inval && !(me->cookie & 1)) {
+		/* clear cache */
+		me->cookie &= ~2;
+	} else if (inval && !(me->cookie & 2)) {
 		/* rising edge: cancel timeout */
 		libt_remove_timeout(on_delay, me);
-		/* set high output */
-		me->cookie |= 2;
+		/* set cache & output */
+		me->cookie = 2+1;
 	}
-	me->cookie = (me->cookie & ~1) | !!inval;
 	/* write output to stack */
-	st->v[st->n-2] = !!(me->cookie & 2);
+	st->v[st->n-2] = me->cookie & 1;
 	st->n -= 1;
 	return 0;
 }
@@ -336,23 +337,26 @@ static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 
 	inval = rpn_toint(st->v[st->n-2]);
 
-	if (inval && !(me->cookie & 1))
+	if (inval && !(me->cookie & 2)) {
 		/* rising edge: schedule timeout */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
-	else if (!inval && (me->cookie & 1)) {
+		/* set cache */
+		me->cookie |= 2;
+	} else if (!inval && (me->cookie & 2)) {
 		/* falling edge: cancel timeout */
 		libt_remove_timeout(on_delay, me);
-		/* set low output */
-		me->cookie &= ~2;
+		/* clear cache & output */
+		me->cookie = 0;
 	}
-	me->cookie = (me->cookie & ~1) | !!inval;
 	/* write output to stack */
-	st->v[st->n-2] = !!(me->cookie & 2);
+	st->v[st->n-2] = me->cookie & 1;
 	st->n -= 1;
 	return 0;
 }
-static int rpn_do_pulse(struct stack *st, struct rpn *me)
+static int rpn_do_offtimer(struct stack *st, struct rpn *me)
 {
+	/* schedule low out when input becomes high */
+	/* I didn't get timeouts correct without this */
 	int inval;
 
 	if (st->n < 2)
@@ -361,18 +365,15 @@ static int rpn_do_pulse(struct stack *st, struct rpn *me)
 
 	inval = rpn_toint(st->v[st->n-2]);
 
-	if (inval && !(me->cookie & 1)) {
-		/* rising edge: schedule timeout */
+	if (inval) {
+		me->cookie = 1;
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
-		/* set high output */
-		me->cookie |= 2;
-	} else if (!inval && (me->cookie & 1)) {
-		/* falling edge: cancel timeout */
+	} else if (me->cookie) {
+		me->cookie = 0;
 		libt_remove_timeout(on_delay, me);
 	}
-	me->cookie = (me->cookie & ~1) | !!inval;
 	/* write output to stack */
-	st->v[st->n-2] = !!(me->cookie & 2);
+	st->v[st->n-2] = me->cookie & 1;
 	st->n -= 1;
 	return 0;
 }
@@ -419,6 +420,15 @@ static int rpn_do_falling(struct stack *st, struct rpn *me)
 	/* set output on rising edge */
 	st->v[st->n-1] = !inval && me->cookie;
 	me->cookie = inval;
+	return 0;
+}
+static int rpn_do_isnew(struct stack *st, struct rpn *me)
+{
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+	if (!rpn_env_isnew())
+		st->v[st->n-1] = NAN;
 	return 0;
 }
 
@@ -505,8 +515,9 @@ static struct lookup {
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
-	{ "pulse", rpn_do_pulse, },
+	{ "offtimer", rpn_do_offtimer, },
 
+	{ "isnew", rpn_do_isnew, },
 	{ "edge", rpn_do_edge, },
 	{ "rising", rpn_do_rising, },
 	{ "falling", rpn_do_falling, },
@@ -549,10 +560,6 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 			rpn->run = rpn_do_env;
 
 			rpn->topic = strndup(tok+2, strlen(tok+2)-1);
-			/* seperate options */
-			rpn->options = strrchr(rpn->topic, ',');
-			if (rpn->options)
-				*(rpn->options)++ = 0;
 		} else if ((lookup = do_lookup(tok)) != NULL) {
 			rpn = rpn_create();
 			rpn->run = lookup->run;

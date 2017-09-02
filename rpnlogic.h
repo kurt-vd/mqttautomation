@@ -5,6 +5,7 @@ struct stack {
 	double *v; /* element array */
 	int n; /* used elements */
 	int s; /* allocated elements */
+	const char *strvalue;
 };
 
 struct rpn {
@@ -13,6 +14,7 @@ struct rpn {
 	void *dat;
 	char *topic;
 	double value;
+	char *strvalue;
 	int cookie;
 };
 

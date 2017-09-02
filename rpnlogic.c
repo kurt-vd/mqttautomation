@@ -34,6 +34,8 @@ static void rpn_free(struct rpn *rpn)
 {
 	if (rpn->topic)
 		free(rpn->topic);
+	if (rpn->strvalue)
+		free(rpn->strvalue);
 	free(rpn);
 }
 
@@ -97,6 +99,11 @@ static inline int rpn_toint(double val)
 		return 0;
 	else
 		return (int)val;
+}
+
+static inline void rpn_set_strvalue(struct stack *st, const char *value)
+{
+	st->strvalue = value;
 }
 
 /* algebra */
@@ -282,9 +289,17 @@ static int rpn_do_const(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+static int rpn_do_strconst(struct stack *st, struct rpn *me)
+{
+	rpn_set_strvalue(st, me->strvalue);
+	rpn_push(st, rpn_strtod(st->strvalue ?: "nan", NULL));
+	return 0;
+}
+
 static int rpn_do_env(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_strtod(rpn_lookup_env(me->topic, me), NULL));
+	rpn_set_strvalue(st, rpn_lookup_env(me->topic, me));
+	rpn_push(st, rpn_strtod(st->strvalue ?: "nan", NULL));
 	return 0;
 }
 
@@ -496,14 +511,20 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 void rpn_stack_reset(struct stack *st)
 {
 	st->n = 0;
+	st->strvalue = NULL;
 }
 
 int rpn_run(struct stack *st, struct rpn *rpn)
 {
 	int ret;
+	const char *savedstr;
 
 	for (; rpn; rpn = rpn->next) {
+		savedstr = st->strvalue;
 		ret = rpn->run(st, rpn);
+		if (savedstr == st->strvalue)
+			/* keep st->strvalue valid only 1 iteration */
+			st->strvalue = NULL;
 		if (ret < 0)
 			return ret;
 	}
@@ -567,6 +588,38 @@ static const struct lookup *do_lookup(const char *tok)
 	return NULL;
 }
 
+/* modified strtok:
+ * don't seperate between " chars
+ * This keeps the " characters in the string.
+ */
+static char *mystrtok(char *newstr, const char *sep)
+{
+	static char *str;
+	char *savedstr = NULL;
+	int instring = 0;
+
+	if (newstr)
+		str = newstr;
+	for (; *str; ++str) {
+		if (!instring && strchr(sep, *str)) {
+			if (savedstr) {
+				/* end reached */
+				*str++ = 0;
+				return savedstr;
+			} else {
+				/* start ok token */
+				savedstr = str;
+			}
+		} else {
+			if (!savedstr)
+				savedstr = str;
+			if (*str == '"')
+				instring = !instring;
+		}
+	}
+	return savedstr;
+}
+
 static const char digits[] = "0123456789";
 struct rpn *rpn_parse(const char *cstr, void *dat)
 {
@@ -576,11 +629,19 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 	const struct lookup *lookup;
 
 	savedstr = strdup(cstr);
-	for (tok = strtok(savedstr, " \t"); tok; tok = strtok(NULL, " \t")) {
+	for (tok = mystrtok(savedstr, " \t"); tok; tok = mystrtok(NULL, " \t")) {
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
 			rpn = rpn_create();
 			rpn->run = rpn_do_const;
 			rpn->value = rpn_strtod(tok, NULL);
+
+		} else if (*tok == '"') {
+			if (tok[strlen(tok)-1] == '"')
+				tok[strlen(tok)-1] = 0;
+			++tok;
+			rpn = rpn_create();
+			rpn->run = rpn_do_strconst;
+			rpn->strvalue = strdup(tok);
 
 		} else if (tok[0] == '$' && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
 			rpn = rpn_create();

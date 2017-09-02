@@ -31,4 +31,5 @@ extern int rpn_env_isnew(void);
 extern void rpn_run_again(void *dat);
 
 extern double rpn_strtod(const char *str, char **endp);
+extern const char *rpn_dtostr(double d);
 #endif

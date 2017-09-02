@@ -62,6 +62,33 @@ double rpn_strtod(const char *str, char **endp)
 		value += strtod((*endp)+1, endp)/3600;
 	return (*endp == str) ? NAN : value;
 }
+const char *rpn_dtostr(double d)
+{
+	static char buf[64];
+	char *str;
+	int ptpresent = 0;
+
+	sprintf(buf, "%lg", d);
+	for (str = buf; *str; ++str) {
+		if (*str == '.')
+			ptpresent = 1;
+		else if (*str == 'e')
+			/* nothing to do anymore */
+			break;
+		else if (ptpresent && *str == '0') {
+			int len = strspn(str, "0");
+			if (!str[len]) {
+				/* entire string (after .) is '0' */
+				*str = 0;
+				if (str > buf && *(str-1) == '.')
+					/* remote '.' too */
+					*(str-1) = 0;
+				break;
+			}
+		}
+	}
+	return buf;
+}
 
 static inline int rpn_toint(double val)
 {

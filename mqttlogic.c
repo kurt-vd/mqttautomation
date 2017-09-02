@@ -90,7 +90,6 @@ struct item {
 	char *lastvalue;
 
 	struct rpn *logic;
-	char *fmt;
 };
 
 static struct item *items;
@@ -267,8 +266,6 @@ static void drop_item(struct item *it)
 	free(it->topic);
 	if (it->writetopic)
 		free(it->writetopic);
-	if (it->fmt)
-		free(it->fmt);
 	rpn_free_chain(it->logic);
 	free(it);
 }
@@ -276,7 +273,7 @@ static void drop_item(struct item *it)
 static void _do_item(struct item *it, struct topic *trigger)
 {
 	int ret;
-	char buf[32];
+	const char *result;
 
 	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
@@ -286,22 +283,22 @@ static void _do_item(struct item *it, struct topic *trigger)
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;
-	sprintf(buf, it->fmt ?: "%f", rpnstack.v[rpnstack.n-1]);
+	result = rpn_dtostr(rpnstack.v[rpnstack.n-1]);
 	/* test if we found something new */
-	if (!strcmp(it->lastvalue ?: "", buf))
+	if (!strcmp(it->lastvalue ?: "", result))
 		return;
 	else if (trigger && !strcmp(trigger->topic, it->topic)) {
 		/* This new calculation is triggered by the topic itself: beware loops */
-		if (!strcmp(buf, trigger->value ?: ""))
+		if (!strcmp(result, trigger->value ?: ""))
 			/* our result changed to the current value: ok
 			 * no need to republish
 			 */
 			goto save_cache;
-		mylog(LOG_WARNING, "logic for '%s': avoid endless loop (was %s, new %s)", it->topic, it->lastvalue, buf);
+		mylog(LOG_WARNING, "logic for '%s': avoid endless loop (was %s, new %s)", it->topic, it->lastvalue, result);
 		return;
 	}
 
-	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(buf), buf, mqtt_qos, !mqtt_write_suffix);
+	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !mqtt_write_suffix);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
 		return;
@@ -310,7 +307,7 @@ static void _do_item(struct item *it, struct topic *trigger)
 save_cache:
 	if (it->lastvalue)
 		free(it->lastvalue);
-	it->lastvalue = strdup(buf);
+	it->lastvalue = strdup(result);
 }
 #define do_item(it)	_do_item(it, NULL)
 void rpn_run_again(void *dat)
@@ -339,16 +336,11 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* remove old logic */
 		rpn_unref(it->logic);
 		rpn_free_chain(it->logic);
-		if (it->fmt)
-			free(it->fmt);
-		it->fmt = NULL;
 		/* prepare new info */
 		str = strrchr(msg->payload, ' ');
 		if (str && str[1] == '%') {
 			/* cut rpn logic */
 			*str++ = 0;
-			it->fmt = strdup(str);
-			/* TODO: verify this format string */
 		}
 		it->logic = rpn_parse(msg->payload, it);
 		rpn_resolve_relative(it->logic, it->topic);

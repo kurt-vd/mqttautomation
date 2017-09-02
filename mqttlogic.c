@@ -183,6 +183,16 @@ const char *rpn_lookup_env(const char *name, struct rpn *rpn)
 	return topic->value;
 }
 
+int rpn_write_env(const char *value, const char *name, struct rpn *rpn)
+{
+	int ret;
+
+	ret = mosquitto_publish(mosq, NULL, name, strlen(value), value, mqtt_qos, rpn->cookie);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", name, mosquitto_strerror(ret));
+	return ret;
+}
+
 /* replace all relative topic references to absolute */
 static void rpn_resolve_relative(struct rpn *rpn, const char *topic)
 {

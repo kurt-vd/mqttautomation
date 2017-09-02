@@ -303,6 +303,17 @@ static int rpn_do_env(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+static int rpn_do_writeenv(struct stack *st, struct rpn *me)
+{
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+
+	rpn_write_env(st->strvalue ?: rpn_dtostr(st->v[st->n-1]), me->topic, me);
+	st->n -= 1;
+	return 0;
+}
+
 static int rpn_do_dup(struct stack *st, struct rpn *me)
 {
 	if (st->n < 1)
@@ -643,11 +654,21 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 			rpn->run = rpn_do_strconst;
 			rpn->strvalue = strdup(tok);
 
-		} else if (tok[0] == '$' && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
+		} else if (strchr("$>=", *tok) && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
 			rpn = rpn_create();
-			rpn->run = rpn_do_env;
-
 			rpn->topic = strndup(tok+2, strlen(tok+2)-1);
+			switch (*tok) {
+			case '$':
+				rpn->run = rpn_do_env;
+				break;
+			case '=':
+				rpn->run = rpn_do_writeenv;
+				rpn->cookie = 1;
+				break;
+			case '>':
+				rpn->run = rpn_do_writeenv;
+				break;
+			}
 		} else if ((lookup = do_lookup(tok)) != NULL) {
 			rpn = rpn_create();
 			rpn->run = lookup->run;

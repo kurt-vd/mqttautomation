@@ -235,9 +235,26 @@ static int rpn_has_ref(struct rpn *rpn, const char *topic)
 	return 0;
 }
 
-static struct item *get_item(const char *topic, int matchlen, int create)
+static int test_suffix(const char *topic, const char *suffix)
+{
+	int len;
+
+	len = strlen(topic ?: "") - strlen(suffix ?: "");
+	if (len < 0)
+		return 0;
+	/* match suffix */
+	return !strcmp(topic+len, suffix ?: "");
+}
+
+static struct item *get_item(const char *topic, const char *suffix, int create)
 {
 	struct item *it;
+	int matchlen;
+
+	matchlen = strlen(topic ?: "") - strlen(suffix ?: "");
+	/* match suffix */
+	if (strcmp(topic+matchlen, suffix ?: ""))
+		return NULL;
 
 	for (it = items; it; it = it->next)
 		if (!strncmp(it->topic, topic, matchlen) && !it->topic[matchlen])
@@ -327,22 +344,18 @@ void rpn_run_again(void *dat)
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
-	int len;
 	struct item *it;
 	struct topic *topic;
 	char *str;
 
-	len = strlen(msg->topic);
-	if (len > mqtt_suffixlen && !strcmp(msg->topic + len - mqtt_suffixlen, mqtt_suffix)) {
+	if (test_suffix(msg->topic, mqtt_suffix)) {
 		/* this is a logic set msg */
-		it = get_item(msg->topic, len-mqtt_suffixlen, msg->payloadlen);
-		if (it && !msg->payloadlen) {
-			drop_item(it);
-			it = NULL;
-		}
-		if (!it)
+		it = get_item(msg->topic, mqtt_suffix, msg->payloadlen);
+		if (!it || !msg->payloadlen) {
+			if (it)
+				drop_item(it);
 			return;
-
+		}
 		/* remove old logic */
 		rpn_unref(it->logic);
 		rpn_free_chain(it->logic);

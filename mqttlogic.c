@@ -201,12 +201,12 @@ static void rpn_resolve_relative(struct rpn *rpn, const char *topic)
 	char *abstopic;
 
 	for (; rpn; rpn = rpn->next) {
-		if (!rpn->topic || strncmp(rpn->topic, "./", 2))
+		if (!rpn->topic || (strcmp(rpn->topic, ".") && strncmp(rpn->topic, "./", 2)))
 			continue;
-		abstopic = malloc(strlen(rpn->topic) + strlen(topic) + 1);
-		if (!abstopic)
-			mylog(LOG_ERR, "malloc absolute topic");
-		sprintf(abstopic, "%s/%s", topic, rpn->topic +2);
+		if (rpn->topic[1] == '/')
+			asprintf(&abstopic, "%s/%s", topic, rpn->topic +2);
+		else
+			abstopic = strdup(topic);
 		free(rpn->topic);
 		rpn->topic = abstopic;
 	}

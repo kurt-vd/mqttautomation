@@ -107,6 +107,8 @@ static struct topic *topics;
 static int ntopics; /* used topics */
 static int stopics;
 
+#define myfree(x) ({ if (x) { free(x); (x) = NULL; }})
+
 /* MQTT iface */
 static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const char *str)
 {
@@ -291,8 +293,9 @@ static void drop_item(struct item *it)
 		it->next->prev = it->prev;
 	/* free memory */
 	free(it->topic);
-	if (it->writetopic)
-		free(it->writetopic);
+	myfree(it->writetopic);
+	myfree(it->lastvalue);
+	rpn_unref(it->logic);
 	rpn_free_chain(it->logic);
 	free(it);
 }

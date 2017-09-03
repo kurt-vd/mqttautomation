@@ -352,7 +352,7 @@ static void on_delay(void *dat)
 
 	/* clear output */
 	me->cookie ^= 1;
-	rpn_run_again(me->dat);
+	rpn_run_again(me);
 }
 static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 {
@@ -502,7 +502,7 @@ static int rpn_do_timeofday(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_hour + tm->tm_min/60.0 + tm->tm_sec/3600.0);
-	libt_add_timeout(next_minute(tm), rpn_run_again, me->dat);
+	libt_add_timeout(next_minute(tm), rpn_run_again, me);
 	return 0;
 }
 
@@ -514,7 +514,7 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_wday ?: 7 /* push 7 for sunday */);
-	libt_add_timeout(next_minute(tm), rpn_run_again, me->dat);
+	libt_add_timeout(next_minute(tm), rpn_run_again, me);
 	return 0;
 }
 

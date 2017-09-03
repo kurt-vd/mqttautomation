@@ -339,10 +339,12 @@ save_cache:
 		free(it->lastvalue);
 	it->lastvalue = strdup(result);
 }
-#define do_item(it)	_do_item(it, NULL)
 void rpn_run_again(void *dat)
 {
-	return do_item(dat);
+	struct item *it = ((struct rpn *)dat)->dat;
+
+	if (rpn_referred(it->logic, dat))
+		do_logic(it, NULL);
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)

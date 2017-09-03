@@ -31,7 +31,7 @@ void rpn_rebase(struct rpn *first, struct rpn **newptr);
 extern const char *rpn_lookup_env(const char *str, struct rpn *);
 extern int rpn_write_env(const char *value, const char *str, struct rpn *);
 extern int rpn_env_isnew(void);
-extern void rpn_run_again(void *dat);
+extern void rpn_run_again(void *dat); /* dat is the calling rpn * */
 
 extern double rpn_strtod(const char *str, char **endp);
 extern const char *rpn_dtostr(double d);

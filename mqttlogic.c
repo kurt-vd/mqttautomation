@@ -90,6 +90,7 @@ struct item {
 	char *lastvalue;
 
 	struct rpn *logic;
+	struct rpn *onchange;
 };
 
 static struct item *items;
@@ -237,6 +238,15 @@ static int rpn_has_ref(struct rpn *rpn, const char *topic)
 	return 0;
 }
 
+static int rpn_referred(struct rpn *rpn, void *dat)
+{
+	for (; rpn; rpn = rpn->next) {
+		if (rpn == dat)
+			return 1;
+	}
+	return 0;
+}
+
 static int test_suffix(const char *topic, const char *suffix)
 {
 	int len;
@@ -284,8 +294,10 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	return it;
 }
 
-static void drop_item(struct item *it)
+static void drop_item(struct item *it, int force)
 {
+	if (!force && (it->logic || it->onchange))
+		return;
 	/* remove from list */
 	if (it->prev)
 		it->prev->next = it->next;
@@ -300,7 +312,7 @@ static void drop_item(struct item *it)
 	free(it);
 }
 
-static void _do_item(struct item *it, struct topic *trigger)
+static void do_logic(struct item *it, struct topic *trigger)
 {
 	int ret;
 	const char *result;
@@ -339,12 +351,22 @@ save_cache:
 		free(it->lastvalue);
 	it->lastvalue = strdup(result);
 }
+
+static void do_onchanged(struct item *it)
+{
+	lastrpntopic = NULL;
+	rpn_stack_reset(&rpnstack);
+	rpn_run(&rpnstack, it->onchange);
+}
+
 void rpn_run_again(void *dat)
 {
 	struct item *it = ((struct rpn *)dat)->dat;
 
 	if (rpn_referred(it->logic, dat))
 		do_logic(it, NULL);
+	else if (rpn_referred(it->onchange, dat))
+		do_onchanged(it);
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -357,8 +379,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* this is a logic set msg */
 		it = get_item(msg->topic, mqtt_suffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it)
-				drop_item(it);
+			if (it) {
+				myfree(it->logic);
+				drop_item(it, 0);
+			}
 			return;
 		}
 		/* remove old logic */
@@ -375,21 +399,46 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		rpn_ref(it->logic);
 		mylog(LOG_INFO, "new logic for %s", it->topic);
 		/* ready, first run */
-		do_item(it);
+		do_logic(it, NULL);
+		return;
+	} else if (test_suffix(msg->topic, "/onchange")) {
+		it = get_item(msg->topic, "/onchange", msg->payloadlen);
+		if (!it || !msg->payloadlen) {
+			if (it) {
+				myfree(it->onchange);
+				drop_item(it, 0);
+			}
+		}
+		/* remove old logic */
+		rpn_unref(it->onchange);
+		rpn_free_chain(it->onchange);
+		/* prepare new info */
+		it->onchange = rpn_parse(msg->payload, it);
+		rpn_resolve_relative(it->onchange, it->topic);
+		rpn_ref(it->onchange);
+		mylog(LOG_INFO, "new onchange for %s", it->topic);
 		return;
 	}
 	/* find topic */
 	topic = get_topic(msg->topic, msg->payloadlen);
-	if (!topic)
-		return;
-	free(topic->value);
-	topic->value = strndup(msg->payload ?: "", msg->payloadlen);
-	if (topic->ref) {
-		for (it = items; it; it = it->next) {
-			if (rpn_has_ref(it->logic, msg->topic))
-				_do_item(it, topic);
+	if (topic) {
+		free(topic->value);
+		topic->value = strndup(msg->payload ?: "", msg->payloadlen);
+		if (topic->ref) {
+			for (it = items; it; it = it->next) {
+				if (rpn_has_ref(it->logic, msg->topic))
+					do_logic(it, topic);
+			}
 		}
 	}
+	/* run onchange logic */
+	it = get_item(msg->topic, "", 0);
+	if (it) {
+		if (it->onchange)
+			do_onchanged(it);
+
+	}
+
 }
 
 static void my_exit(void)

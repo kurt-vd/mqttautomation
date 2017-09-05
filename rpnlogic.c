@@ -18,6 +18,8 @@
 	})
 #define ESTR(num)	strerror(num)
 
+/* placeholder for quitting */
+#define QUIT	((struct rpn *)0xdeadbeef)
 /* manage */
 static struct rpn *rpn_create(void)
 {
@@ -518,11 +520,20 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+/* flow control */
+static int rpn_do_quit(struct stack *st, struct rpn *me)
+{
+	st->jumpto = QUIT;
+	/* real quit is done in rpn_run */
+	return 0;
+}
+
 /* run time functions */
 void rpn_stack_reset(struct stack *st)
 {
 	st->n = 0;
 	st->strvalue = NULL;
+	st->jumpto = NULL;
 }
 
 int rpn_run(struct stack *st, struct rpn *rpn)
@@ -530,7 +541,10 @@ int rpn_run(struct stack *st, struct rpn *rpn)
 	int ret;
 	const char *savedstr;
 
-	for (; rpn; rpn = rpn->next) {
+	for (; rpn; rpn = st->jumpto ?: rpn->next) {
+		if (rpn == QUIT)
+			break;
+		st->jumpto = NULL;
 		savedstr = st->strvalue;
 		ret = rpn->run(st, rpn);
 		if (savedstr == st->strvalue)
@@ -585,6 +599,8 @@ static struct lookup {
 
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
+
+	{ "quit", rpn_do_quit, },
 	{ "", },
 };
 

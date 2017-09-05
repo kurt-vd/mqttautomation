@@ -6,6 +6,7 @@ struct stack {
 	int n; /* used elements */
 	int s; /* allocated elements */
 	const char *strvalue;
+	struct rpn *jumpto;
 };
 
 struct rpn {
@@ -16,6 +17,7 @@ struct rpn {
 	double value;
 	char *strvalue;
 	int cookie;
+	struct rpn *rpn; /* cached rpn for flow control */
 };
 
 /* functions */

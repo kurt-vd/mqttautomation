@@ -1,7 +1,4 @@
-PROGS	= mqttalrm
-PROGS	+= mqttinputevent
-PROGS	+= mqttimer
-PROGS	+= mqttimesw
+PROGS	= mqttinputevent
 PROGS	+= mqttimport
 PROGS	+= mqttled
 PROGS	+= mqttlogic
@@ -23,12 +20,6 @@ VERSION := $(shell git describe --tags --always)
 -include config.mk
 
 CPPFLAGS += -DVERSION=\"$(VERSION)\"
-
-mqttalrm: lib/libt.o common.o
-
-mqttimer: lib/libt.o
-
-mqttimesw: lib/libt.o common.o
 
 mqttled: lib/libt.o
 

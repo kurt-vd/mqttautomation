@@ -522,6 +522,74 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 }
 
 /* flow control */
+static int rpn_do_if(struct stack *st, struct rpn *me)
+{
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+
+	if (!rpn_toint(st->v[st->n-1]))
+		st->jumpto = me->rpn ?: QUIT;
+	st->n -= 1;
+	return 0;
+}
+
+static int rpn_do_else(struct stack *st, struct rpn *me)
+{
+	st->jumpto = me->rpn ?: QUIT;
+	return 0;
+}
+
+static int rpn_do_fi(struct stack *st, struct rpn *me)
+{
+	/* this is a marker */
+	return 0;
+}
+
+static void rpn_find_fi_else(struct rpn *rpn,
+		struct rpn **pelse, struct rpn **pfi)
+{
+	int nested = 0;
+
+	*pelse = *pfi = NULL;
+	for (rpn = rpn->next; rpn; rpn = rpn->next) {
+		if (rpn->run == rpn_do_if) {
+			++nested;
+
+		} else if (rpn->run == rpn_do_fi) {
+			if (!nested) {
+				*pfi = rpn;
+				return;
+			}
+			--nested;
+
+		} else if (rpn->run == rpn_do_else) {
+			if (!nested)
+				*pelse = rpn;
+		}
+	}
+}
+
+static void rpn_test_if(struct rpn *me)
+{
+	struct rpn *pelse, *pfi;
+
+	rpn_find_fi_else(me, &pelse, &pfi);
+	if (!pfi)
+		mylog(LOG_WARNING, "if without fi");
+	me->rpn = pelse ? pelse->next : pfi;
+}
+
+static void rpn_test_else(struct rpn *me)
+{
+	struct rpn *pelse, *pfi;
+
+	rpn_find_fi_else(me, &pelse, &pfi);
+	if (pelse)
+		mylog(LOG_WARNING, "2nd else unexpected");
+	me->rpn = pfi;
+}
+
 static int rpn_do_quit(struct stack *st, struct rpn *me)
 {
 	st->jumpto = QUIT;
@@ -601,6 +669,9 @@ static struct lookup {
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
 
+	{ "if", rpn_do_if, },
+	{ "else", rpn_do_else, },
+	{ "fi", rpn_do_fi, },
 	{ "quit", rpn_do_quit, },
 	{ "", },
 };
@@ -732,5 +803,13 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		last = rpn;
 	}
 	free(savedstr);
+
+	/* do static tests */
+	for (rpn = root; rpn; rpn = rpn->next) {
+		if (rpn->run == rpn_do_if)
+			rpn_test_if(rpn);
+		else if (rpn->run == rpn_do_else)
+			rpn_test_else(rpn);
+	}
 	return root;
 }

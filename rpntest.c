@@ -12,6 +12,15 @@ const char *rpn_lookup_env(const char *str, struct rpn *rpn)
 {
 	return getenv(str);
 }
+int rpn_write_env(const char *value, const char *str, struct rpn *rpn)
+{
+	printf("%c{%s} '%s'\n", rpn->cookie ? '=' : '>', str, value);
+	return 0;
+}
+int rpn_env_isnew(void)
+{
+	return 0;
+}
 void rpn_run_again(void *dat)
 {
 }

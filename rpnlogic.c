@@ -287,6 +287,7 @@ static void rpn_push(struct stack *st, double value)
 
 static int rpn_do_const(struct stack *st, struct rpn *me)
 {
+	rpn_set_strvalue(st, me->strvalue);
 	rpn_push(st, me->value);
 	return 0;
 }
@@ -615,6 +616,26 @@ static const struct lookup *do_lookup(const char *tok)
 	return NULL;
 }
 
+static struct constant {
+	const char *name;
+	double value;
+} const constants[] = {
+	{ "pi", M_PI, },
+	{ "e", M_E, },
+	{ "", NAN, },
+};
+
+static const struct constant *do_constant(const char *tok)
+{
+	const struct constant *lp;
+
+	for (lp = constants; *lp->name; ++lp) {
+		if (!strcmp(lp->name, tok))
+			return lp;
+	}
+	return NULL;
+}
+
 /* modified strtok:
  * don't seperate between " chars
  * This keeps the " characters in the string.
@@ -654,6 +675,7 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 	char *tok;
 	struct rpn *root = NULL, *last = NULL, *rpn;
 	const struct lookup *lookup;
+	const struct constant *constant;
 
 	savedstr = strdup(cstr);
 	for (tok = mystrtok(savedstr, " \t"); tok; tok = mystrtok(NULL, " \t")) {
@@ -688,6 +710,12 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		} else if ((lookup = do_lookup(tok)) != NULL) {
 			rpn = rpn_create();
 			rpn->run = lookup->run;
+
+		} else if ((constant = do_constant(tok)) != NULL) {
+			rpn = rpn_create();
+			rpn->run = rpn_do_const;
+			rpn->value = constant->value;
+			rpn->strvalue = strdup(tok);
 
 		} else {
 			mylog(LOG_INFO, "unknown token '%s'", tok);

@@ -319,9 +319,11 @@ static void do_logic(struct item *it, struct topic *trigger)
 
 	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
-	trigger->isnew = 1;
+	if (trigger)
+		trigger->isnew = 1;
 	ret = rpn_run(&rpnstack, it->logic);
-	trigger->isnew = 0;
+	if (trigger)
+		trigger->isnew = 0;
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;

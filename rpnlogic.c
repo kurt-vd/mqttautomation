@@ -252,6 +252,24 @@ static int rpn_do_boolnot(struct stack *st, struct rpn *me)
 	st->v[st->n-1] = !rpn_toint(st->v[st->n-1]);
 	return 0;
 }
+static int rpn_do_intequal(struct stack *st, struct rpn *me)
+{
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) == rpn_toint(st->v[st->n-1]);
+	st->n -= 1;
+	return 0;
+}
+static int rpn_do_intnotequal(struct stack *st, struct rpn *me)
+{
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) != rpn_toint(st->v[st->n-1]);
+	st->n -= 1;
+	return 0;
+}
 
 /* compare */
 static int rpn_do_lt(struct stack *st, struct rpn *me)
@@ -644,6 +662,8 @@ static struct lookup {
 	{ "&&", rpn_do_booland, },
 	{ "||", rpn_do_boolor, },
 	{ "!", rpn_do_boolnot, },
+	{ "==", rpn_do_intequal, },
+	{ "!=", rpn_do_intnotequal, },
 
 	{ "<", rpn_do_lt, },
 	{ ">", rpn_do_gt, },

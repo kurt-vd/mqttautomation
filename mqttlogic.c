@@ -294,9 +294,14 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	return it;
 }
 
-static void drop_item(struct item *it, int force)
+static void drop_item(struct item *it, struct rpn **prpn)
 {
-	if (!force && (it->logic || it->onchange))
+	if (*prpn) {
+		rpn_unref(*prpn);
+		rpn_free_chain(*prpn);
+		*prpn = NULL;
+	}
+	if (it->logic || it->onchange)
 		return;
 	/* remove from list */
 	if (it->prev)
@@ -307,8 +312,6 @@ static void drop_item(struct item *it, int force)
 	free(it->topic);
 	myfree(it->writetopic);
 	myfree(it->lastvalue);
-	rpn_unref(it->logic);
-	rpn_free_chain(it->logic);
 	free(it);
 }
 
@@ -381,10 +384,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* this is a logic set msg */
 		it = get_item(msg->topic, mqtt_suffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it) {
-				myfree(it->logic);
-				drop_item(it, 0);
-			}
+			if (it)
+				drop_item(it, &it->logic);
 			return;
 		}
 		/* remove old logic */
@@ -406,10 +407,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	} else if (test_suffix(msg->topic, "/onchange")) {
 		it = get_item(msg->topic, "/onchange", msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it) {
-				myfree(it->onchange);
-				drop_item(it, 0);
-			}
+			if (it)
+				drop_item(it, &it->onchange);
+			return;
 		}
 		/* remove old logic */
 		rpn_unref(it->onchange);

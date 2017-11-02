@@ -145,7 +145,7 @@ int attr_read(int default_value, const char *fmt, ...)
 	return strtol(result, NULL, 0);
 }
 
-int attr_write(int value, const char *fmt, ...)
+int attr_write(const char *value, const char *fmt, ...)
 {
 	FILE *fp;
 	int ret;
@@ -158,7 +158,7 @@ int attr_write(int value, const char *fmt, ...)
 
 	fp = fopen(file, "w");
 	if (fp) {
-		ret = fprintf(fp, "%i\n", value);
+		ret = fprintf(fp, "%s\n", value);
 		fclose(fp);
 	} else {
 		mylog(LOG_WARNING, "fopen %s w: %s", file, ESTR(errno));
@@ -280,10 +280,40 @@ static void drop_item(struct item *it)
 static void setled(struct item *it, const char *newvalue, int republish)
 {
 	int ret, newval;
+	char buf[16], *endp;
 
-	newval = strtod(newvalue ?: "", NULL)*it->maxvalue;
-	if (attr_write(newval, "%s/brightness", it->sysfsdir) < 0)
-		return;
+	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
+	if (endp > newvalue) {
+		if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
+			return;
+		sprintf(buf, "%i", newval);
+		if (attr_write(buf, "%s/brightness", it->sysfsdir) < 0)
+			return;
+	} else {
+		char *dupstr = strdup(newvalue);
+		char *tok = strtok(dupstr, " \t");
+
+		if (attr_write(tok, "%s/trigger", it->sysfsdir) < 0) {
+			free(dupstr);
+			return;
+		}
+		if (!strcmp(tok, "timer")) {
+			tok = strtok(NULL, " \t");
+			if (tok) {
+				newval = strtod(tok, NULL)*1000;
+				sprintf(buf, "%i", newval);
+				attr_write(buf, "%s/delay_on", it->sysfsdir);
+			}
+			endp = tok;
+			tok = strtok(NULL, " \t");
+			if (tok || endp) {
+				newval = strtod(tok ?: endp, NULL)*1000;
+				sprintf(buf, "%i", newval);
+				attr_write(buf, "%s/delay_off", it->sysfsdir);
+			}
+		}
+		free(dupstr);
+	}
 
 	if (republish && mqtt_write_suffix) {
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
@@ -306,6 +336,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it = get_item(msg->topic, mqtt_suffix, !!msg->payloadlen && forme);
 		if (!it)
 			return;
+
 		/* this is a spec msg */
 		if (!msg->payloadlen || !forme) {
 			mylog(LOG_INFO, "removed led spec for %s", it->topic);

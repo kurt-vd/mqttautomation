@@ -145,6 +145,15 @@ static int rpn_do_div(struct stack *st, struct rpn *me)
 	st->n -= 1;
 	return 0;
 }
+static int rpn_do_mod(struct stack *st, struct rpn *me)
+{
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+	st->v[st->n-2] = fmod(st->v[st->n-2], st->v[st->n-1]);
+	st->n -= 1;
+	return 0;
+}
 static int rpn_do_pow(struct stack *st, struct rpn *me)
 {
 	if (st->n < 2)
@@ -652,6 +661,7 @@ static struct lookup {
 	{ "-", rpn_do_minus, },
 	{ "*", rpn_do_mul, },
 	{ "/", rpn_do_div, },
+	{ "%", rpn_do_mod, },
 	{ "**", rpn_do_pow, },
 
 	{ "&", rpn_do_bitand, },

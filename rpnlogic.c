@@ -672,6 +672,7 @@ static struct lookup {
 	{ "&&", rpn_do_booland, },
 	{ "||", rpn_do_boolor, },
 	{ "!", rpn_do_boolnot, },
+	{ "not", rpn_do_boolnot, },
 	{ "==", rpn_do_intequal, },
 	{ "!=", rpn_do_intnotequal, },
 

@@ -294,7 +294,8 @@ int main(int argc, char *argv[])
 			/* cut newline */
 			line[ret-1] = 0;
 		tok = strtok(line, " \t");
-		if (!tok || !strlen(tok))
+		if (line[0] == '#' || !tok || !strlen(tok))
+			/* ignore such line */
 			continue;
 		it = get_item(tok);
 		if (!it)

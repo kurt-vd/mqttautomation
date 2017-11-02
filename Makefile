@@ -1,4 +1,5 @@
 PROGS	= mqttinputevent
+PROGS	+= mqtt1wtemp
 PROGS	+= mqttimport
 PROGS	+= mqttled
 PROGS	+= mqttlogic
@@ -20,6 +21,8 @@ VERSION := $(shell git describe --tags --always)
 -include config.mk
 
 CPPFLAGS += -DVERSION=\"$(VERSION)\"
+
+mqtt1wtemp: lib/libt.o
 
 mqttled: lib/libt.o
 

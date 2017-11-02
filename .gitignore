@@ -1,4 +1,5 @@
 # output
+/mqtt1wtemp
 /mqttinputevent
 /mqttimport
 /mqttled

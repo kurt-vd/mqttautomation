@@ -5,6 +5,8 @@
 #include <string.h>
 #include <time.h>
 
+#include <unistd.h>
+#include <fcntl.h>
 #include <syslog.h>
 
 #include "lib/libt.h"
@@ -548,6 +550,23 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+static int rpn_do_uptime(struct stack *st, struct rpn *me)
+{
+	int ret, fd;
+	char buf[128];
+
+	fd = open("/proc/uptime", O_RDONLY);
+	if (fd < 0)
+		return -errno;
+	ret = read(fd, buf, sizeof(buf));
+	if (ret > 0) {
+		buf[ret] = 0;
+		rpn_push(st, strtoul(buf, 0, 0));
+	}
+	close(fd);
+	return ret;
+}
+
 /* flow control */
 static int rpn_do_if(struct stack *st, struct rpn *me)
 {
@@ -699,6 +718,7 @@ static struct lookup {
 
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
+	{ "uptime", rpn_do_uptime, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

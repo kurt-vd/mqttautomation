@@ -550,6 +550,12 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+static int rpn_do_abstime(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, time(NULL));
+	return 0;
+}
+
 static int rpn_do_uptime(struct stack *st, struct rpn *me)
 {
 	int ret, fd;
@@ -718,6 +724,7 @@ static struct lookup {
 
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
+	{ "abstime", rpn_do_abstime, },
 	{ "uptime", rpn_do_uptime, },
 
 	{ "if", rpn_do_if, },

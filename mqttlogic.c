@@ -407,7 +407,6 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	struct item *it;
 	struct topic *topic;
-	char *str;
 
 	if (test_suffix(msg->topic, mqtt_suffix)) {
 		/* this is a logic set msg */
@@ -421,11 +420,6 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		rpn_unref(it->logic);
 		rpn_free_chain(it->logic);
 		/* prepare new info */
-		str = strrchr(msg->payload, ' ');
-		if (str && str[1] == '%') {
-			/* cut rpn logic */
-			*str++ = 0;
-		}
 		it->logic = rpn_parse(msg->payload, it);
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);

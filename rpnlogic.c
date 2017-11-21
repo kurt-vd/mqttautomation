@@ -526,6 +526,25 @@ static inline int next_minute(struct tm *tm)
 	return (next <= 0 || next > 60) ? 60 : next;
 }
 
+static int rpn_do_wakeup(struct stack *st, struct rpn *me)
+{
+	time_t t, next;
+	int align;
+
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+	/* leave the diff with the latest value on stack */
+	align = rpn_toint(st->v[st->n-1]);
+	time(&t);
+
+	next = t - t % align + align;
+	libt_add_timeout(next - t, rpn_run_again, me);
+
+	st->n -= 1;
+	return 0;
+}
+
 static int rpn_do_timeofday(struct stack *st, struct rpn *me)
 {
 	time_t t;
@@ -534,7 +553,6 @@ static int rpn_do_timeofday(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_hour + tm->tm_min/60.0 + tm->tm_sec/3600.0);
-	libt_add_timeout(next_minute(tm), rpn_run_again, me);
 	return 0;
 }
 
@@ -546,7 +564,6 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_wday ?: 7 /* push 7 for sunday */);
-	libt_add_timeout(next_minute(tm), rpn_run_again, me);
 	return 0;
 }
 
@@ -722,6 +739,7 @@ static struct lookup {
 	{ "changed", rpn_do_edge, },
 	{ "pushed", rpn_do_rising, },
 
+	{ "wakeup", rpn_do_wakeup, },
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
 	{ "abstime", rpn_do_abstime, },

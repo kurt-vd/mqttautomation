@@ -2,11 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <unistd.h>
 #include <syslog.h>
 
+#include "lib/libt.h"
 #include "rpnlogic.h"
-
-static struct stack rpnstack;
 
 const char *rpn_lookup_env(const char *str, struct rpn *rpn)
 {
@@ -21,24 +21,41 @@ int rpn_env_isnew(void)
 {
 	return 0;
 }
+
+static void my_rpn_run(struct rpn *rpn)
+{
+	struct stack rpnstack = {};
+	int j;
+
+	if (rpn_run(&rpnstack, rpn))
+		printf("failed\n");
+	for (j = 0; j < rpnstack.n; ++j)
+		printf("[%i] %s\n", j, rpn_dtostr(rpnstack.v[j]));
+}
+
 void rpn_run_again(void *dat)
 {
+	struct rpn *rpn = dat;
+	struct rpn **rootrpn = rpn->dat;
+
+	printf("--\n");
+	my_rpn_run(*rootrpn);
 }
 
 int main(int argc, char *argv[])
 {
-	struct rpn *rpn;
 	char *input;
-	int j;
+	struct rpn *rpn;
 
 	openlog("rpntest", LOG_PERROR, LOG_LOCAL2);
 	input = argv[1];
-	rpn = rpn_parse(input, NULL);
+	rpn = rpn_parse(input, &rpn);
 	if (!rpn)
 		return 1;
-	if (rpn_run(&rpnstack, rpn))
-		return 1;
-	for (j = 0; j < rpnstack.n; ++j)
-		printf("[%i] %s\n", j, rpn_dtostr(rpnstack.v[j]));
+	my_rpn_run(rpn);
+	for (; libt_get_waittime() >= 0;) {
+		libt_flush();
+		sleep(1);
+	}
 	return 0;
 }

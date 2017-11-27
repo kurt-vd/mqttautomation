@@ -6,6 +6,7 @@ struct stack {
 	int n; /* used elements */
 	int s; /* allocated elements */
 	const char *strvalue;
+	int strvalueset; /* keep strvalue */
 	struct rpn *jumpto;
 };
 

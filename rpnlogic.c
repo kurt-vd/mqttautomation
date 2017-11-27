@@ -108,6 +108,7 @@ static inline int rpn_toint(double val)
 static inline void rpn_set_strvalue(struct stack *st, const char *value)
 {
 	st->strvalue = value;
+	st->strvalueset = 1;
 }
 
 /* algebra */
@@ -600,18 +601,21 @@ static int rpn_do_if(struct stack *st, struct rpn *me)
 	if (!rpn_toint(st->v[st->n-1]))
 		st->jumpto = me->rpn ?: QUIT;
 	st->n -= 1;
+	st->strvalueset = 1;
 	return 0;
 }
 
 static int rpn_do_else(struct stack *st, struct rpn *me)
 {
 	st->jumpto = me->rpn ?: QUIT;
+	st->strvalueset = 1;
 	return 0;
 }
 
 static int rpn_do_fi(struct stack *st, struct rpn *me)
 {
 	/* this is a marker */
+	st->strvalueset = 1;
 	return 0;
 }
 
@@ -663,6 +667,7 @@ static int rpn_do_quit(struct stack *st, struct rpn *me)
 {
 	st->jumpto = QUIT;
 	/* real quit is done in rpn_run */
+	st->strvalueset = 1;
 	return 0;
 }
 
@@ -677,15 +682,14 @@ void rpn_stack_reset(struct stack *st)
 int rpn_run(struct stack *st, struct rpn *rpn)
 {
 	int ret;
-	const char *savedstr;
 
 	for (; rpn; rpn = st->jumpto ?: rpn->next) {
 		if (rpn == QUIT)
 			break;
 		st->jumpto = NULL;
-		savedstr = st->strvalue;
+		st->strvalueset = 0;
 		ret = rpn->run(st, rpn);
-		if (savedstr == st->strvalue)
+		if (!st->strvalueset)
 			/* keep st->strvalue valid only 1 iteration */
 			st->strvalue = NULL;
 		if (ret < 0)

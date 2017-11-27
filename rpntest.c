@@ -30,7 +30,8 @@ static void my_rpn_run(struct rpn *rpn)
 	if (rpn_run(&rpnstack, rpn))
 		printf("failed\n");
 	for (j = 0; j < rpnstack.n; ++j)
-		printf("[%i] %s\n", j, rpn_dtostr(rpnstack.v[j]));
+		printf("[%i] %s\n", j, (!j && rpnstack.strvalue) ?
+				rpnstack.strvalue : rpn_dtostr(rpnstack.v[j]));
 }
 
 void rpn_run_again(void *dat)

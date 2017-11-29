@@ -207,8 +207,16 @@ static const struct {
 	{ 0x000000, "black", },
 	{ 0xffffff, "white", },
 	{ 0x0000ff, "blue", },
+	{ 0xa52a2a, "brown", },
+	{ 0x00ffff, "cyan", },
+	{ 0xffd700, "gold", },
 	{ 0x00ff00, "green", },
+	{ 0xffff00, "yellow", },
+	{ 0xffa500, "orange", },
 	{ 0xff0000, "red", },
+	{ 0xff1493, "pink", },
+	{ 0xff00ff, "fuchsia", },
+	{ 0x800080, "purple", },
 };
 #define NCOLORS	(sizeof(colormap)/sizeof(colormap[0]))
 

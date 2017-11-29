@@ -77,6 +77,11 @@ static const char optstring[] = "Vv?m:s:w:d:";
 /* signal handler */
 static volatile int sigterm;
 
+static void onsigterm(int sig)
+{
+	sigterm = 1;
+}
+
 /* MQTT parameters */
 static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
@@ -153,6 +158,8 @@ static void spi_write_apa102(void *dat)
 	for (j = 1; j < ndat-2; ++j)
 		pdat[j] = htonl(0xe0000000);
 	/* fill data */
+	if (!sigterm)
+		/* only put real data when not quitting */
 	for (it = items; it; it = it->next)
 		pdat[it->index+1] = htonl(0xff000000 | rgb_to_bgr(it->rgb));
 
@@ -164,6 +171,8 @@ static void spi_write_apa102(void *dat)
 		mylog(LOG_WARNING, "spi transfer failed: %s", ESTR(errno));
 		return;
 	}
+	if (sigterm)
+		return;
 	/* all leds written, forget possibly deleted leds */
 	deleted_led_count = 0;
 
@@ -490,7 +499,10 @@ int main(int argc, char *argv[])
 			mylog(LOG_ERR, "mosquitto_subscribe %s: %s", argv[optind], mosquitto_strerror(ret));
 	}
 
-	while (1) {
+	sigaction(SIGTERM, &(struct sigaction){ .sa_handler = onsigterm, }, NULL);
+	sigaction(SIGINT, &(struct sigaction){ .sa_handler = onsigterm, }, NULL);
+
+	while (!sigterm) {
 		libt_flush();
 		waittime = libt_get_waittime();
 		if (waittime > 1000)
@@ -499,5 +511,7 @@ int main(int argc, char *argv[])
 		if (ret)
 			mylog(LOG_ERR, "mosquitto_loop: %s", mosquitto_strerror(ret));
 	}
+	/* blank all leds (sigterm set) */
+	spi_write_apa102(NULL);
 	return 0;
 }

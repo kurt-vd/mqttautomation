@@ -1,5 +1,6 @@
 PROGS	= mqttinputevent
 PROGS	+= mqtt1wtemp
+PROGS	+= mqttapa102led
 PROGS	+= mqttimport
 PROGS	+= mqttled
 PROGS	+= mqttlogic
@@ -23,6 +24,8 @@ VERSION := $(shell git describe --tags --always)
 CPPFLAGS += -DVERSION=\"$(VERSION)\"
 
 mqtt1wtemp: lib/libt.o
+
+mqttapa102led: lib/libt.o
 
 mqttled: lib/libt.o
 

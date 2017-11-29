@@ -7,6 +7,7 @@ PROGS	+= mqttlogic
 PROGS	+= mqttmaclight
 PROGS	+= mqttnow
 PROGS	+= mqttsun
+PROGS	+= rpntest
 default	: $(PROGS)
 
 PREFIX	= /usr/local

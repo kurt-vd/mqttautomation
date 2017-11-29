@@ -218,12 +218,15 @@ static void setled(struct item *it, const char *newvalue, int republish)
 	char *endp;
 
 	newval = it->rgb;
-	if (*newvalue == '#') {
+	if (!newvalue || !*newvalue)
+		newval = 0;
+	else if (*newvalue == '#') {
 		/* RRGGBB format */
+		mylog(LOG_WARNING, "%s: RRGGBB %s", it->topic, newvalue+1);
 		newval = strtoul(newvalue+1, &endp, 16);
 		if (endp-newvalue == 3+1)
 			newval = rgb_to_rrggbb(newval);
-	} if (*newvalue >= '0' && *newvalue <= '9') {
+	} else if (*newvalue >= '0' && *newvalue <= '9') {
 		ret = strtoul(newvalue, NULL, 10);
 		if (ret < NCOLORS)
 			newval = colormap[ret].rgb;

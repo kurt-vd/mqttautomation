@@ -39,7 +39,11 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -q, --qos=QoS		Set QoS to use (default 1)\n"
-	" -f, --force		Always write\n"
+	" -t, --type=TYPE	Set import type:\n"
+	"			force: unconditionally write all topics\n"
+	"			normal: write topics only when different\n"
+	"			missing: only write missing topics\n"
+	" -f, --force		(legacy) -tforce\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -50,6 +54,7 @@ static struct option long_opts[] = {
 
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "qos", required_argument, NULL, 'q', },
+	{ "type", required_argument, NULL, 't', },
 	{ "force", no_argument, NULL, 'f', },
 
 	{ },
@@ -58,7 +63,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:q:f";
+static const char optstring[] = "Vv?m:q:t:f";
 
 /* signal handler */
 static volatile int sigterm;
@@ -68,7 +73,10 @@ static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
-static int force = 0;
+static int type = 0;
+#define TYPE_FORCE	3
+#define TYPE_NORMAL	2
+#define TYPE_MISSING	1
 
 /* state */
 static struct mosquitto *mosq;
@@ -172,11 +180,11 @@ static void drop_item(struct item *it)
 	free(it);
 }
 
-static void send_item(struct item *it)
+static void send_item(struct item *it, const char *msg)
 {
 	int ret;
 
-	mylog(LOG_NOTICE, "import %s", it->topic);
+	mylog(LOG_NOTICE, "%s %s", msg, it->topic);
 	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(it->value ?: ""), it->value, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
@@ -189,13 +197,17 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	if (is_self_sync(msg)) {
 		for (it = items; it; it = it->next)
-			send_item(it);
+			send_item(it, "import");
 	}
 
 	for (it = items; it; it = it->next) {
 		if (!strcmp(msg->topic, it->topic)) {
-			if (!it->imported)
-				mylog(LOG_INFO, "leave %s", it->topic);
+			if (!it->imported) {
+				if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: ""))
+					send_item(it, "update");
+				else
+					mylog(LOG_INFO, "leave %s", it->topic);
+			}
 			drop_item(it);
 			return;
 		}
@@ -249,12 +261,23 @@ int main(int argc, char *argv[])
 		mqtt_qos = strtoul(optarg, NULL, 0);
 		break;
 	case 'f':
-		force = 1;
+		type = TYPE_FORCE;
+		break;
+	case 't':
+		if (!strcmp(optarg, "force"))
+			type = TYPE_FORCE;
+		else if (!strcmp(optarg, "normal"))
+			type = TYPE_NORMAL;
+		else if (!strcmp(optarg, "missing"))
+			type = TYPE_MISSING;
+		else
+			goto printhelp;
 		break;
 
 	default:
 		fprintf(stderr, "unknown option '%c'", opt);
 	case '?':
+printhelp:
 		fputs(help_msg, stderr);
 		exit(1);
 		break;
@@ -308,8 +331,8 @@ int main(int argc, char *argv[])
 		ret = mosquitto_subscribe(mosq, NULL, it->topic, mqtt_qos);
 		if (ret)
 			mylog(LOG_ERR, "mosquitto_subscribe %s: %s", it->topic, mosquitto_strerror(ret));
-		if (force)
-			send_item(it);
+		if (type == TYPE_FORCE)
+			send_item(it, "force");
 	}
 	if (line)
 		free(line);

@@ -591,6 +591,24 @@ static int rpn_do_uptime(struct stack *st, struct rpn *me)
 	return ret;
 }
 
+static int rpn_do_strftime(struct stack *st, struct rpn *me)
+{
+	static char buf[1024];
+
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+
+	if (!st->strvalue)
+		return -1;
+
+	long stamp = st->v[st->n-2];
+	strftime(buf, sizeof(buf), st->strvalue, localtime(&stamp));
+	st->n -= 1;
+	rpn_set_strvalue(st, buf);
+	return 0;
+}
+
 /* flow control */
 static int rpn_do_if(struct stack *st, struct rpn *me)
 {
@@ -748,6 +766,7 @@ static struct lookup {
 	{ "dayofweek", rpn_do_dayofweek, },
 	{ "abstime", rpn_do_abstime, },
 	{ "uptime", rpn_do_uptime, },
+	{ "strftime", rpn_do_strftime, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <unistd.h>
+#include <locale.h>
 #include <syslog.h>
 
 #include "lib/libt.h"
@@ -49,6 +50,7 @@ int main(int argc, char *argv[])
 	struct rpn *rpn;
 
 	openlog("rpntest", LOG_PERROR, LOG_LOCAL2);
+	setlocale(LC_TIME, "");
 	input = argv[1];
 	rpn = rpn_parse(input, &rpn);
 	if (!rpn)

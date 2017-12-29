@@ -9,6 +9,7 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <locale.h>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -521,6 +522,7 @@ int main(int argc, char *argv[])
 		break;
 	}
 
+	setlocale(LC_TIME, "");
 	atexit(my_exit);
 	openlog(NAME, LOG_PERROR, LOG_LOCAL2);
 	setlogmask(logmask);

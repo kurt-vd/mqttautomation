@@ -43,7 +43,8 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for scripts (default '/logic')\n"
-	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default empty)\n"
+	" -S, --setsuffix=STR	Give MQTT topic suffix for scripts that write to /set (default '/setlogic')\n"
+	" -w, --write=STR	Give MQTT topic suffix for writing the topic on /logicw (default /set)\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -57,6 +58,7 @@ static struct option long_opts[] = {
 
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
+	{ "Suffix", required_argument, NULL, 'S', },
 	{ "write", required_argument, NULL, 'w', },
 
 	{ },
@@ -65,7 +67,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:s:w:";
+static const char optstring[] = "Vv?m:s:S:w:";
 
 /* signal handler */
 static volatile int sigterm;
@@ -74,8 +76,10 @@ static volatile int sigterm;
 static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/logic";
-static const char *mqtt_write_suffix;
+static const char *mqtt_setsuffix = "/setlogic";
+static const char *mqtt_write_suffix = "/set";
 static int mqtt_suffixlen = 6;
+static int mqtt_setsuffixlen = 9;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -310,7 +314,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	it->topic = strdup(topic);
 	it->topic[matchlen] = 0;
 	/* set write topic */
-	if (mqtt_write_suffix)
+	if (suffix == mqtt_setsuffix)
 		asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
 
 	/* insert in linked list */
@@ -375,7 +379,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 		return;
 	}
 
-	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !mqtt_write_suffix);
+	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !it->writetopic);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
 		return;
@@ -417,6 +421,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				drop_item(it, &it->logic);
 			return;
 		}
+		if (it->writetopic) {
+			free(it->writetopic);
+			it->writetopic = NULL;
+		}
 		/* remove old logic */
 		rpn_unref(it->logic);
 		rpn_free_chain(it->logic);
@@ -425,6 +433,27 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
 		mylog(LOG_INFO, "new logic for %s", it->topic);
+		/* ready, first run */
+		do_logic(it, NULL);
+		return;
+	} else if (test_suffix(msg->topic, mqtt_setsuffix)) {
+		/* this is a logic set msg */
+		it = get_item(msg->topic, mqtt_setsuffix, msg->payloadlen);
+		if (!it || !msg->payloadlen) {
+			if (it)
+				drop_item(it, &it->logic);
+			return;
+		}
+		if (!it->writetopic)
+			asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
+		/* remove old logic */
+		rpn_unref(it->logic);
+		rpn_free_chain(it->logic);
+		/* prepare new info */
+		it->logic = rpn_parse(msg->payload, it);
+		rpn_resolve_relative(it->logic, it->topic);
+		rpn_ref(it->logic);
+		mylog(LOG_INFO, "new setlogic for %s", it->topic);
 		/* ready, first run */
 		do_logic(it, NULL);
 		return;
@@ -509,6 +538,10 @@ int main(int argc, char *argv[])
 	case 's':
 		mqtt_suffix = optarg;
 		mqtt_suffixlen = strlen(mqtt_suffix);
+		break;
+	case 'S':
+		mqtt_setsuffix = optarg;
+		mqtt_setsuffixlen = strlen(mqtt_setsuffix);
 		break;
 	case 'w':
 		mqtt_write_suffix = optarg;

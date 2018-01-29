@@ -206,8 +206,10 @@ static int test_nodename(const char *nodename)
 	static char mynodename[128];
 
 	if (!nodename)
-		/* empty nodename matches always */
-		return 1;
+		/* empty nodename matches always, for local hosts */
+		return !strcmp(mqtt_host, "localhost") ||
+			!strncmp(mqtt_host, "127.", 4) ||
+			!strcmp(mqtt_host, "::1");
 
 	gethostname(mynodename, sizeof(mynodename));
 	return !strcmp(mynodename, nodename);

@@ -44,6 +44,7 @@ static const char help_msg[] =
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for scripts (default '/logic')\n"
 	" -S, --setsuffix=STR	Give MQTT topic suffix for scripts that write to /set (default '/setlogic')\n"
+	" -c, --onchange=STR	Give MQTT topic suffix for onchange handler scripts (default '/onchange')\n"
 	" -w, --write=STR	Give MQTT topic suffix for writing the topic on /logicw (default /set)\n"
 	"\n"
 	"Paramteres\n"
@@ -59,6 +60,7 @@ static struct option long_opts[] = {
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
 	{ "Suffix", required_argument, NULL, 'S', },
+	{ "onchange", required_argument, NULL, 'c', },
 	{ "write", required_argument, NULL, 'w', },
 
 	{ },
@@ -67,7 +69,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:s:S:w:";
+static const char optstring[] = "Vv?m:s:S:c:w:";
 
 /* signal handler */
 static volatile int sigterm;
@@ -77,6 +79,7 @@ static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/logic";
 static const char *mqtt_setsuffix = "/setlogic";
+static const char *mqtt_onchangesuffix = "/onchange";
 static const char *mqtt_write_suffix = "/set";
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
@@ -455,8 +458,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* ready, first run */
 		do_logic(it, NULL);
 		return;
-	} else if (test_suffix(msg->topic, "/onchange")) {
-		it = get_item(msg->topic, "/onchange", msg->payloadlen);
+	} else if (test_suffix(msg->topic, mqtt_onchangesuffix)) {
+		it = get_item(msg->topic, mqtt_onchangesuffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
 			if (it)
 				drop_item(it, &it->onchange);
@@ -538,6 +541,9 @@ int main(int argc, char *argv[])
 		break;
 	case 'S':
 		mqtt_setsuffix = optarg;
+		break;
+	case 'c':
+		mqtt_onchangesuffix = optarg;
 		break;
 	case 'w':
 		mqtt_write_suffix = optarg;

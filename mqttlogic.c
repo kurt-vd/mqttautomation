@@ -196,6 +196,7 @@ int rpn_write_env(const char *value, const char *name, struct rpn *rpn)
 {
 	int ret;
 
+	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s", name, rpn->cookie ? '=' : '>', value);
 	ret = mosquitto_publish(mosq, NULL, name, strlen(value), value, mqtt_qos, rpn->cookie);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", name, mosquitto_strerror(ret));
@@ -380,6 +381,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 		return;
 	}
 
+	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s", it->writetopic ?: it->topic, it->writetopic ? '>' : '=', result);
 	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !it->writetopic);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
@@ -508,7 +510,7 @@ int main(int argc, char *argv[])
 	int opt, ret, waittime;
 	char *str;
 	char mqtt_name[32];
-	int logmask = LOG_UPTO(LOG_NOTICE);
+	int logmask = LOG_UPTO(LOG_WARNING);
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -519,6 +521,9 @@ int main(int argc, char *argv[])
 		exit(0);
 	case 'v':
 		switch (logmask) {
+		case LOG_UPTO(LOG_WARNING):
+			logmask = LOG_UPTO(LOG_NOTICE);
+			break;
 		case LOG_UPTO(LOG_NOTICE):
 			logmask = LOG_UPTO(LOG_INFO);
 			break;

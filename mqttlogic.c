@@ -78,8 +78,6 @@ static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/logic";
 static const char *mqtt_setsuffix = "/setlogic";
 static const char *mqtt_write_suffix = "/set";
-static int mqtt_suffixlen = 6;
-static int mqtt_setsuffixlen = 9;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -537,11 +535,9 @@ int main(int argc, char *argv[])
 		break;
 	case 's':
 		mqtt_suffix = optarg;
-		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'S':
 		mqtt_setsuffix = optarg;
-		mqtt_setsuffixlen = strlen(mqtt_setsuffix);
 		break;
 	case 'w':
 		mqtt_write_suffix = optarg;

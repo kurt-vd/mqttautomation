@@ -6,7 +6,6 @@ PROGS	+= mqttled
 PROGS	+= mqttlogic
 PROGS	+= mqttmaclight
 PROGS	+= mqttnow
-PROGS	+= mqttsun
 PROGS	+= rpntest
 default	: $(PROGS)
 
@@ -36,9 +35,6 @@ mqttlogic: lib/libt.o rpnlogic.o sunposition.o
 mqttmaclight: lib/libt.o
 
 mqttnow: lib/libt.o
-
-mqttsun: LDLIBS+=-lm
-mqttsun: lib/libt.o sunposition.o
 
 rpntest: LDLIBS+=-lm
 rpntest: lib/libt.o rpnlogic.o sunposition.o

@@ -22,6 +22,9 @@ struct rpn {
 };
 
 /* functions */
+int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat);
+void rpn_parse_done(struct rpn *root);
+
 struct rpn *rpn_parse(const char *cstr, void *dat);
 
 void rpn_stack_reset(struct stack *st);

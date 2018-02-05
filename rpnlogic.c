@@ -839,16 +839,22 @@ static char *mystrtok(char *newstr, const char *sep)
 }
 
 static const char digits[] = "0123456789";
-struct rpn *rpn_parse(const char *cstr, void *dat)
+int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 {
 	char *savedstr;
 	char *tok;
-	struct rpn *root = NULL, *last = NULL, *rpn;
+	int result;
+	struct rpn *last = NULL, *rpn, **localproot;
 	const struct lookup *lookup;
 	const struct constant *constant;
 
+	/* find current 'last' rpn */
+	for (last = *proot; last && last->next; last = last->next);
+	localproot = last ? &last->next : proot;
+	/* parse */
 	savedstr = strdup(cstr);
-	for (tok = mystrtok(savedstr, " \t"); tok; tok = mystrtok(NULL, " \t")) {
+	for (tok = mystrtok(savedstr, " \t"), result = 0; tok;
+			tok = mystrtok(NULL, " \t"), ++result) {
 		rpn = rpn_create();
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
 			rpn->run = rpn_do_const;
@@ -886,19 +892,27 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		} else {
 			mylog(LOG_INFO, "unknown token '%s'", tok);
 			rpn_free(rpn);
-			if (root)
-				rpn_free_chain(root);
-			root = NULL;
-			break;
+			goto failed;
 		}
 		rpn->dat = dat;
 		if (last)
 			last->next = rpn;
-		if (!root)
-			root = rpn;
+		if (!*proot)
+			*proot = rpn;
 		last = rpn;
 	}
 	free(savedstr);
+	return result;
+
+failed:
+	rpn_free_chain(*localproot);
+	*localproot = 0;
+	return -1;
+}
+
+void rpn_parse_done(struct rpn *root)
+{
+	struct rpn *rpn;
 
 	/* do static tests */
 	for (rpn = root; rpn; rpn = rpn->next) {
@@ -907,5 +921,13 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 		else if (rpn->run == rpn_do_else)
 			rpn_test_else(rpn);
 	}
-	return root;
+}
+
+struct rpn *rpn_parse(const char *cstr, void *dat)
+{
+	struct rpn *rpns = NULL;
+
+	rpn_parse_append(cstr, &rpns, dat);
+	rpn_parse_done(rpns);
+	return rpns;
 }

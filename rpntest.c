@@ -46,15 +46,19 @@ void rpn_run_again(void *dat)
 
 int main(int argc, char *argv[])
 {
-	char *input;
-	struct rpn *rpn;
+	struct rpn *rpn = NULL;
 
 	openlog("rpntest", LOG_PERROR, LOG_LOCAL2);
 	setlocale(LC_TIME, "");
-	input = argv[1];
-	rpn = rpn_parse(input, &rpn);
+
+	for (++argv; *argv; ++argv) {
+		if (rpn_parse_append(*argv, &rpn, &rpn) < 0)
+			return 1;
+	}
+	rpn_parse_done(rpn);
 	if (!rpn)
 		return 1;
+
 	my_rpn_run(rpn);
 	for (; libt_get_waittime() >= 0;) {
 		libt_flush();

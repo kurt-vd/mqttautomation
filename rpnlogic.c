@@ -849,8 +849,8 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 
 	savedstr = strdup(cstr);
 	for (tok = mystrtok(savedstr, " \t"); tok; tok = mystrtok(NULL, " \t")) {
+		rpn = rpn_create();
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
-			rpn = rpn_create();
 			rpn->run = rpn_do_const;
 			rpn->value = rpn_strtod(tok, NULL);
 
@@ -858,12 +858,10 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 			if (tok[strlen(tok)-1] == '"')
 				tok[strlen(tok)-1] = 0;
 			++tok;
-			rpn = rpn_create();
 			rpn->run = rpn_do_strconst;
 			rpn->strvalue = strdup(tok);
 
 		} else if (strchr("$>=", *tok) && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
-			rpn = rpn_create();
 			rpn->topic = strndup(tok+2, strlen(tok+2)-1);
 			switch (*tok) {
 			case '$':
@@ -878,17 +876,16 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 				break;
 			}
 		} else if ((lookup = do_lookup(tok)) != NULL) {
-			rpn = rpn_create();
 			rpn->run = lookup->run;
 
 		} else if ((constant = do_constant(tok)) != NULL) {
-			rpn = rpn_create();
 			rpn->run = rpn_do_const;
 			rpn->value = constant->value;
 			rpn->strvalue = strdup(tok);
 
 		} else {
 			mylog(LOG_INFO, "unknown token '%s'", tok);
+			rpn_free(rpn);
 			if (root)
 				rpn_free_chain(root);
 			root = NULL;

@@ -31,7 +31,7 @@ mqttapa102led: lib/libt.o
 mqttled: lib/libt.o
 
 mqttlogic: LDLIBS+=-lm
-mqttlogic: lib/libt.o rpnlogic.o
+mqttlogic: lib/libt.o rpnlogic.o sunposition.o
 
 mqttmaclight: lib/libt.o
 
@@ -41,7 +41,7 @@ mqttsun: LDLIBS+=-lm
 mqttsun: lib/libt.o sunposition.o
 
 rpntest: LDLIBS+=-lm
-rpntest: lib/libt.o rpnlogic.o
+rpntest: lib/libt.o rpnlogic.o sunposition.o
 
 install: $(PROGS)
 	$(foreach PROG, $(PROGS), install -vp -m 0777 $(INSTOPTS) $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG);)

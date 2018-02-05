@@ -11,6 +11,7 @@
 
 #include "lib/libt.h"
 #include "rpnlogic.h"
+#include "sun.h"
 
 #define mylog(loglevel, fmt, ...) \
 	({\
@@ -609,6 +610,22 @@ static int rpn_do_strftime(struct stack *st, struct rpn *me)
 	return 0;
 }
 
+/* sun position */
+static int rpn_do_sun(struct stack *st, struct rpn *me)
+{
+	double incl, azm;
+	int ret;
+
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+
+	ret = sungetpos(time(NULL), st->v[st->n-2], st->v[st->n-1], &incl, &azm, NULL);
+	st->n -= 2;
+	rpn_push(st, (ret >= 0) ? incl : NAN);
+	return 0;
+}
+
 /* flow control */
 static int rpn_do_if(struct stack *st, struct rpn *me)
 {
@@ -767,6 +784,8 @@ static struct lookup {
 	{ "abstime", rpn_do_abstime, },
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
+
+	{ "sun", rpn_do_sun, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

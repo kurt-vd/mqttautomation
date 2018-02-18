@@ -440,6 +440,28 @@ static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 	st->n -= 1;
 	return 0;
 }
+static int rpn_do_debounce(struct stack *st, struct rpn *me)
+{
+	int inval;
+
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+
+	inval = rpn_toint(st->v[st->n-2]);
+
+	if (inval != me->cookie) {
+		/* change, schedule timeout */
+		libt_add_timeout(st->v[st->n-1], on_delay, me);
+	} else {
+		/* reverted, cancel timer */
+		libt_remove_timeout(on_delay, me);
+	}
+	/* write output to stack */
+	st->v[st->n-2] = me->cookie;
+	st->n -= 1;
+	return 0;
+}
 static int rpn_do_offtimer(struct stack *st, struct rpn *me)
 {
 	/* schedule low out when input becomes high */
@@ -769,6 +791,7 @@ static struct lookup {
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
+	{ "debounce", rpn_do_debounce, },
 	{ "offtimer", rpn_do_offtimer, },
 
 	{ "isnew", rpn_do_isnew, },

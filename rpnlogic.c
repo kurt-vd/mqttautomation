@@ -450,15 +450,16 @@ static int rpn_do_debounce(struct stack *st, struct rpn *me)
 
 	inval = rpn_toint(st->v[st->n-2]);
 
-	if (inval != me->cookie) {
-		/* change, schedule timeout */
+	if (inval != !!(me->cookie & 2)) {
+		/* change from last value, schedule timeout */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
-	} else {
-		/* reverted, cancel timer */
+		me->cookie = (me->cookie & ~2) | (inval ? 2 : 0);
+	} else if (inval == (me->cookie & 1)) {
+		/* value equals output, cancel timer */
 		libt_remove_timeout(on_delay, me);
 	}
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie;
+	st->v[st->n-2] = me->cookie & 1;
 	st->n -= 1;
 	return 0;
 }

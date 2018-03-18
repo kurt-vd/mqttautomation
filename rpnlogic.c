@@ -545,14 +545,6 @@ static int rpn_do_isnew(struct stack *st, struct rpn *me)
 }
 
 /* date/time functions */
-static inline int next_minute(struct tm *tm)
-{
-	int next;
-
-	next = 60 - tm->tm_sec;
-	return (next <= 0 || next > 60) ? 60 : next;
-}
-
 static int rpn_do_wakeup(struct stack *st, struct rpn *me)
 {
 	time_t t, next;

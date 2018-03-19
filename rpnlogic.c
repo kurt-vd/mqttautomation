@@ -465,10 +465,9 @@ static int rpn_do_debounce(struct stack *st, struct rpn *me)
 	st->n -= 1;
 	return 0;
 }
-static int rpn_do_offtimer(struct stack *st, struct rpn *me)
+
+static int rpn_do_autoreset(struct stack *st, struct rpn *me)
 {
-	/* schedule low out when input becomes high */
-	/* I didn't get timeouts correct without this */
 	int inval;
 
 	if (st->n < 2)
@@ -477,13 +476,16 @@ static int rpn_do_offtimer(struct stack *st, struct rpn *me)
 
 	inval = rpn_toint(st->v[st->n-2]);
 
-	if (inval) {
-		me->cookie = 1;
+	if (inval && !(me->cookie & 2)) {
+		/* rising edge, schedule reset */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
-	} else if (me->cookie) {
-		me->cookie = 0;
+		me->cookie |= 2+1;
+	} else if (!inval && (me->cookie & 2)) {
+		/* falling edge, cancel reset */
 		libt_remove_timeout(on_delay, me);
+		me->cookie &= ~2;
 	}
+
 	/* write output to stack */
 	st->v[st->n-2] = me->cookie & 1;
 	st->n -= 1;
@@ -787,7 +789,7 @@ static struct lookup {
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
 	{ "debounce", rpn_do_debounce, },
-	{ "offtimer", rpn_do_offtimer, },
+	{ "autoreset", rpn_do_autoreset, },
 
 	{ "isnew", rpn_do_isnew, },
 	{ "edge", rpn_do_edge, },

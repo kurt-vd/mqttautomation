@@ -89,6 +89,7 @@ struct item {
 	char *topic;
 	int topiclen;
 	char *writetopic;
+	char *name;
 	char *sysfsdir;
 	int maxvalue;
 };
@@ -272,6 +273,7 @@ static void drop_item(struct item *it)
 		mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
 	/* free memory */
 	free(it->topic);
+	free(it->name);
 	if (it->writetopic)
 		free(it->writetopic);
 	if (it->sysfsdir)
@@ -279,13 +281,47 @@ static void drop_item(struct item *it)
 	free(it);
 }
 
+static void init_led(struct item *it)
+{
+	/* find full path for led or brightness */
+	static const char *const sysfsdir_fmts[] = {
+		"/sys/class/leds/%s",
+		"/sys/class/backlight/%s",
+		"/tmp/%s",
+		NULL,
+	};
+	char *path;
+	struct stat st;
+	int j;
+
+	for (j = 0; sysfsdir_fmts[j]; ++j) {
+		asprintf(&path, sysfsdir_fmts[j], it->name);
+		if (!stat(path, &st)) {
+			it->sysfsdir = path;
+			break;
+		}
+		free(path);
+	}
+	if (!it->sysfsdir)
+		return;
+	mylog(LOG_INFO, "%s: active on %s", it->topic, it->sysfsdir);
+	it->maxvalue = attr_read(255, "%s/max_brightness", it->sysfsdir);
+}
+
 static void setled(struct item *it, const char *newvalue, int republish)
 {
 	int ret, newval;
 	char buf[16], *endp;
 
+	if (!it->sysfsdir)
+		/* no led found, retry */
+		init_led(it);
+
 	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
-	if (endp > newvalue) {
+
+	if (!it->sysfsdir) {
+		/* do nothing, without backend */
+	} else if (endp > newvalue) {
 		if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
 			return;
 		sprintf(buf, "%i", newval);
@@ -327,8 +363,8 @@ static void setled(struct item *it, const char *newvalue, int republish)
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
-	int j, forme;
-	char *path, *ledname;
+	int forme;
+	char *ledname;
 	struct item *it;
 
 	if (test_suffix(msg->topic, mqtt_suffix)) {
@@ -350,30 +386,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			free(it->sysfsdir);
 		it->sysfsdir = NULL;
 
-		/* process new led spec */
-		/* find full path for led or brightness */
-		static const char *const sysfsdir_fmts[] = {
-			"/sys/class/leds/%s",
-			"/sys/class/backlight/%s",
-			"/tmp/%s",
-			NULL,
-		};
-		struct stat st;
-		for (j = 0; sysfsdir_fmts[j]; ++j) {
-			asprintf(&path, sysfsdir_fmts[j], ledname);
-			if (!stat(path, &st)) {
-				it->sysfsdir = path;
-				break;
-			}
-			free(path);
-		}
-		if (!it->sysfsdir) {
-			mylog(LOG_INFO, "%s: %s is no led or brightness", it->topic, ledname);
-			drop_item(it);
-			return;
-		}
-		it->maxvalue = attr_read(255, "%s/max_brightness", it->sysfsdir);
+		free(it->name);
+		it->name = strdup(ledname);
+
+		/* finalize */
 		mylog(LOG_INFO, "new led spec for %s: %s", it->topic, it->sysfsdir);
+		init_led(it);
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */

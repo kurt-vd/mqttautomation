@@ -8,6 +8,7 @@ PROGS	+= mqttmaclight
 PROGS	+= mqttnow
 PROGS	+= mqttteleruptor
 PROGS	+= rpntest
+#PROGS	+= testteleruptor
 default	: $(PROGS)
 
 PREFIX	= /usr/local
@@ -41,6 +42,8 @@ mqttteleruptor: lib/libt.o
 
 rpntest: LDLIBS+=-lm
 rpntest: lib/libt.o rpnlogic.o sunposition.o
+
+testteleruptor: lib/libt.o
 
 install: $(PROGS)
 	$(foreach PROG, $(PROGS), install -vp -m 0777 $(INSTOPTS) $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG);)

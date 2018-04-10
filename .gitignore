@@ -9,6 +9,7 @@
 /mqttnow
 /mqttteleruptor
 /rpntest
+/testteleruptor
 
 # temp
 *.o

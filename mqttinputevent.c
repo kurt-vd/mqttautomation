@@ -19,19 +19,12 @@
 #include <mosquitto.h>
 #include <linux/input.h>
 
+#include "common.h"
+
 #define NAME "mqttinputevent"
 #ifndef VERSION
 #define VERSION "<undefined version>"
 #endif
-
-/* generic error logging */
-#define mylog(loglevel, fmt, ...) \
-	({\
-		syslog(loglevel, fmt, ##__VA_ARGS__); \
-		if (loglevel <= LOG_ERR)\
-			exit(1);\
-	})
-#define ESTR(num)	strerror(num)
 
 /* program options */
 static const char help_msg[] =
@@ -66,6 +59,9 @@ static struct option long_opts[] = {
 	getopt((argc), (argv), (optstring))
 #endif
 static const char optstring[] = "Vv?m:s:d:";
+
+/* logging */
+static int loglevel = LOG_WARNING;
 
 /* signal handler */
 static volatile int sigterm;
@@ -252,7 +248,6 @@ int main(int argc, char *argv[])
 	struct item *it;
 	char *str;
 	char mqtt_name[32];
-	int logmask = LOG_UPTO(LOG_NOTICE);
 	struct pollfd pf[2];
 	struct input_event evs[16];
 	char valuestr[32];
@@ -265,14 +260,7 @@ int main(int argc, char *argv[])
 				NAME, VERSION, __DATE__, __TIME__);
 		exit(0);
 	case 'v':
-		switch (logmask) {
-		case LOG_UPTO(LOG_NOTICE):
-			logmask = LOG_UPTO(LOG_INFO);
-			break;
-		case LOG_UPTO(LOG_INFO):
-			logmask = LOG_UPTO(LOG_DEBUG);
-			break;
-		}
+		++loglevel;
 		break;
 	case 'm':
 		mqtt_host = optarg;
@@ -300,8 +288,8 @@ int main(int argc, char *argv[])
 		break;
 	}
 
-	openlog(NAME, LOG_PERROR, LOG_LOCAL2);
-	setlogmask(logmask);
+	myopenlog(NAME, 0, LOG_LOCAL2);
+	myloglevel(loglevel);
 
 	if (!inputdev)
 		mylog(LOG_ERR, "no input device specified");

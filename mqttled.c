@@ -17,20 +17,12 @@
 #include <mosquitto.h>
 
 #include "lib/libt.h"
+#include "common.h"
 
 #define NAME "mqttled"
 #ifndef VERSION
 #define VERSION "<undefined version>"
 #endif
-
-/* generic error logging */
-#define mylog(loglevel, fmt, ...) \
-	({\
-		syslog(loglevel, fmt, ##__VA_ARGS__); \
-		if (loglevel <= LOG_ERR)\
-			exit(1);\
-	})
-#define ESTR(num)	strerror(num)
 
 /* program options */
 static const char help_msg[] =
@@ -65,6 +57,9 @@ static struct option long_opts[] = {
 	getopt((argc), (argv), (optstring))
 #endif
 static const char optstring[] = "Vv?m:s:w:";
+
+/* logging */
+static int loglevel = LOG_WARNING;
 
 /* signal handler */
 static volatile int sigterm;
@@ -408,7 +403,6 @@ int main(int argc, char *argv[])
 	int opt, ret, waittime;
 	char *str;
 	char mqtt_name[32];
-	int logmask = LOG_UPTO(LOG_NOTICE);
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -418,14 +412,7 @@ int main(int argc, char *argv[])
 				NAME, VERSION, __DATE__, __TIME__);
 		exit(0);
 	case 'v':
-		switch (logmask) {
-		case LOG_UPTO(LOG_NOTICE):
-			logmask = LOG_UPTO(LOG_INFO);
-			break;
-		case LOG_UPTO(LOG_INFO):
-			logmask = LOG_UPTO(LOG_DEBUG);
-			break;
-		}
+		++loglevel;
 		break;
 	case 'm':
 		mqtt_host = optarg;
@@ -453,8 +440,8 @@ int main(int argc, char *argv[])
 		break;
 	}
 
-	openlog(NAME, LOG_PERROR, LOG_LOCAL2);
-	setlogmask(logmask);
+	myopenlog(NAME, 0, LOG_LOCAL2);
+	myloglevel(loglevel);
 
 	/* MQTT start */
 	mosquitto_lib_init();

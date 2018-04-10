@@ -17,20 +17,12 @@
 #include <mosquitto.h>
 
 #include "lib/libt.h"
+#include "common.h"
 
 #define NAME "testteleruptor"
 #ifndef VERSION
 #define VERSION "<undefined version>"
 #endif
-
-/* generic error logging */
-#define mylog(loglevel, fmt, ...) \
-	({\
-		syslog(loglevel, fmt, ##__VA_ARGS__); \
-		if (loglevel <= LOG_ERR)\
-			exit(1);\
-	})
-#define ESTR(num)	strerror(num)
 
 static inline void myfree(void *ptr)
 {
@@ -69,6 +61,9 @@ static struct option long_opts[] = {
 	getopt((argc), (argv), (optstring))
 #endif
 static const char optstring[] = "Vv?m:w:";
+
+/* logging */
+static int loglevel = LOG_WARNING;
 
 /* signal handler */
 static volatile int sigterm;
@@ -174,14 +169,7 @@ int main(int argc, char *argv[])
 				NAME, VERSION, __DATE__, __TIME__);
 		exit(0);
 	case 'v':
-		switch (logmask) {
-		case LOG_UPTO(LOG_NOTICE):
-			logmask = LOG_UPTO(LOG_INFO);
-			break;
-		case LOG_UPTO(LOG_INFO):
-			logmask = LOG_UPTO(LOG_DEBUG);
-			break;
-		}
+		++loglevel;
 		break;
 	case 'm':
 		mqtt_host = optarg;
@@ -214,8 +202,7 @@ int main(int argc, char *argv[])
 	if (mqtt_write_suffix && *mqtt_write_suffix)
 		asprintf(&topic_ctl_set, "%s%s", topic_ctl, mqtt_write_suffix);
 
-	openlog(NAME, LOG_PERROR, LOG_LOCAL2);
-	setlogmask(logmask);
+	setmylog(NAME, 0, LOG_LOCAL2, loglevel);
 
 	/* MQTT start */
 	mosquitto_lib_init();

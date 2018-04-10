@@ -12,14 +12,7 @@
 #include "lib/libt.h"
 #include "rpnlogic.h"
 #include "sun.h"
-
-#define mylog(loglevel, fmt, ...) \
-	({\
-		syslog(loglevel, fmt, ##__VA_ARGS__); \
-		if (loglevel <= LOG_ERR)\
-			exit(1);\
-	})
-#define ESTR(num)	strerror(num)
+#include "common.h"
 
 /* placeholder for quitting */
 #define QUIT	((struct rpn *)0xdeadbeef)

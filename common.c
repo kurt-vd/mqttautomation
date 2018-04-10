@@ -1,75 +1,54 @@
-#include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <unistd.h>
+#include <syslog.h>
+
 #include "common.h"
 
-/* utils */
-int strtohhmm(char *str)
+/* error logging */
+static int logtostderr = -1;
+static int maxloglevel = LOG_WARNING;
+
+void myopenlog(const char *name, int options, int facility)
 {
-	char *next;
-	int hh, mm;
+	char *tty;
 
-	if (!str)
-		return -1;
-	hh = strtoul(str, &next, 10);
-	if (next <= str || !strchr(":hHuU", *next))
-		return -1;
-	mm = strtoul(next+1, NULL, 10);
-	return hh*100+mm;
-}
-
-int strtowdays(char *str)
-{
-	int j;
-	int result = 0;
-
-	for (j = 0; str[j] && (j < 7); ++j) {
-		if (!strchr("-_", str[j]))
-			/* enable this day,
-			 * wday is struct tm.tm_wday compatible
-			 * (sunday == 0)
-			 */
-			result |= 1 << ((j+1) % 7);
+	tty = ttyname(STDERR_FILENO);
+	logtostderr = tty && !!strcmp(tty, "/dev/console");
+	if (!logtostderr && name) {
+		openlog(name, options, facility);
+		setlogmask(LOG_UPTO(maxloglevel));
 	}
-	return result;
 }
 
-/* mktime, with DST crossing correction */
-time_t mktime_dstsafe(struct tm *tm)
+void myloglevel(int level)
 {
-	struct tm copy = *tm;
-	time_t result;
-
-	result = mktime(tm);
-	if ((tm->tm_min != copy.tm_min) || (tm->tm_hour != copy.tm_hour)) {
-		/* crossed daylight saving settings */
-		tm->tm_hour = copy.tm_hour;
-		tm->tm_min = copy.tm_min;
-		result = mktime(tm);
-	}
-	return result;
+	maxloglevel = level;
+	if (logtostderr == 0)
+		setlogmask(LOG_UPTO(maxloglevel));
 }
 
-/* csprintf: like asprintf, but return a semi-static buffer,
- * so no need to free things
- */
-static char *csprintf_ptr;
-
-__attribute((destructor))
-static void free_csprintf_ptr(void)
-{
-	if (csprintf_ptr)
-		free(csprintf_ptr);
-	csprintf_ptr = NULL;
-}
-
-__attribute__((format(printf,1,2)))
-const char *csprintf(const char *fmt, ...)
+void mylog(int loglevel, const char *fmt, ...)
 {
 	va_list va;
 
-	free_csprintf_ptr();
+	if (logtostderr < 0)
+		myopenlog(NULL, 0, LOG_LOCAL1);
+
+	if (logtostderr && loglevel > maxloglevel)
+		goto done;
 	va_start(va, fmt);
-	vasprintf(&csprintf_ptr, fmt, va);
+	if (logtostderr) {
+		vfprintf(stderr, fmt, va);
+		fputc('\n', stderr);
+		fflush(stderr);
+	} else
+		vsyslog(loglevel, fmt, va);
 	va_end(va);
-	return csprintf_ptr;
+done:
+	if (loglevel <= LOG_ERR)
+		exit(1);
 }

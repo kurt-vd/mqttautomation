@@ -25,25 +25,28 @@ VERSION := $(shell git describe --tags --always)
 
 CPPFLAGS += -DVERSION=\"$(VERSION)\"
 
-mqtt1wtemp: lib/libt.o
+mqtt1wtemp: common.o lib/libt.o
 
-mqttapa102led: lib/libt.o
+mqttapa102led: common.o lib/libt.o
 
-mqttled: lib/libt.o
+mqttimport: common.o
+mqttinputevent: common.o
+
+mqttled: common.o lib/libt.o
 
 mqttlogic: LDLIBS+=-lm
-mqttlogic: lib/libt.o rpnlogic.o sunposition.o
+mqttlogic: common.o lib/libt.o rpnlogic.o sunposition.o
 
-mqttmaclight: lib/libt.o
+mqttmaclight: common.o lib/libt.o
 
-mqttnow: lib/libt.o
+mqttnow: common.o lib/libt.o
 
-mqttteleruptor: lib/libt.o
+mqttteleruptor: common.o lib/libt.o
 
 rpntest: LDLIBS+=-lm
-rpntest: lib/libt.o rpnlogic.o sunposition.o
+rpntest: common.o lib/libt.o rpnlogic.o sunposition.o
 
-testteleruptor: lib/libt.o
+testteleruptor: common.o lib/libt.o
 
 install: $(PROGS)
 	$(foreach PROG, $(PROGS), install -vp -m 0777 $(INSTOPTS) $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG);)

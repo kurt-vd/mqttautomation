@@ -199,12 +199,6 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	}
 }
 
-static void my_exit(void)
-{
-	if (mosq)
-		mosquitto_disconnect(mosq);
-}
-
 static void sendnow(void *dat)
 {
 	struct item *it;
@@ -284,7 +278,6 @@ int main(int argc, char *argv[])
 		break;
 	}
 
-	atexit(my_exit);
 	signal(SIGINT, onsigterm);
 	signal(SIGTERM, onsigterm);
 	openlog(NAME, LOG_PERROR, LOG_LOCAL2);

@@ -313,14 +313,13 @@ static void setled(struct item *it, const char *newvalue, int republish)
 	int ret, newval;
 	char buf[16], *endp;
 
-	if (!it->sysfsdir)
-		/* no led found, retry */
-		init_led(it);
-
 	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
-	if (!it->sysfsdir) {
+	if (!it->sysfsdir && !strcmp(it->name, "...")) {
 		/* do nothing, without backend */
+	} else if (!it->sysfsdir) {
+		/* don't ack the led */
+		return;
 	} else if (endp > newvalue) {
 		if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
 			return;

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <unistd.h>
+#define SYSLOG_NAMES
 #include <syslog.h>
 
 #include "common.h"
@@ -51,4 +52,17 @@ void mylog(int loglevel, const char *fmt, ...)
 done:
 	if (loglevel <= LOG_ERR)
 		exit(1);
+}
+
+int mysetloglevelstr(char *str)
+{
+	int j;
+
+	for (j = 0; prioritynames[j].c_name; ++j) {
+		if (!strcmp(str ?: "", prioritynames[j].c_name)) {
+			myloglevel(prioritynames[j].c_val);
+			return prioritynames[j].c_val;
+		}
+	}
+	return -1;
 }

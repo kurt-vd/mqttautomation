@@ -306,7 +306,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	int ret;
 	struct item *it;
 
-	if (test_suffix(msg->topic, mqtt_suffix)) {
+	if (!strcmp(msg->topic, "tools/loglevel")) {
+		mysetloglevelstr(msg->payload);
+	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		char *ctl, *state;
 
 		ctl = strtok(msg->payload ?: "", " \t");

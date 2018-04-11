@@ -411,7 +411,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	struct item *it;
 	struct topic *topic;
 
-	if (test_suffix(msg->topic, mqtt_suffix)) {
+	if (!strcmp(msg->topic, "tools/loglevel")) {
+		mysetloglevelstr(msg->payload);
+	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		/* this is a logic set msg */
 		it = get_item(msg->topic, mqtt_suffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {

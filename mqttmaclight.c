@@ -195,7 +195,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	struct item *it;
 
 	len = strlen(msg->topic);
-	if (len > mqtt_suffixlen && !strcmp(msg->topic + len - mqtt_suffixlen, mqtt_suffix)) {
+	if (!strcmp(msg->topic, "tools/loglevel")) {
+		mysetloglevelstr(msg->payload);
+	} else if (len > mqtt_suffixlen && !strcmp(msg->topic + len - mqtt_suffixlen, mqtt_suffix)) {
 		/* this is a timeout set msg */
 		topic = strdup(msg->topic);
 		topic[len-mqtt_suffixlen] = 0;

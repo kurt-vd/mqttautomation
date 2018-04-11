@@ -10,6 +10,7 @@ __attribute__((format(printf,2,3)))
 extern void mylog(int loglevel, const char *fmt, ...);
 extern void myopenlog(const char *name, int options, int facility);
 extern void myloglevel(int loglevel);
+extern int mysetloglevelstr(char *str);
 
 #ifdef __cplusplus
 }

@@ -206,7 +206,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	char *event;
 	struct item *it;
 
-	if (test_suffix(msg->topic, mqtt_suffix)) {
+	if (!strcmp(msg->topic, "tools/loglevel")) {
+		mysetloglevelstr(msg->payload);
+	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		event = strtok(msg->payload ?: "", " \t");
 		forme = test_nodename(strtok(NULL, " \t"));
 

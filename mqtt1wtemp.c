@@ -287,7 +287,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	char *path, *w1name;
 	struct item *it;
 
-	if (test_suffix(msg->topic, mqtt_suffix)) {
+	if (!strcmp(msg->topic, "tools/loglevel")) {
+		mysetloglevelstr(msg->payload);
+	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		/* grab boardname */
 		w1name = strtok(msg->payload ?: "", " \t");
 		forme = test_nodename(strtok(NULL, " \t"));

@@ -332,7 +332,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->statetopic, mosquitto_strerror(ret));
 				free(it->statetopic);
 			}
-			it->statetopic = strdup(state);
+			it->statetopic = resolve_relative_path(state, it->topic) ?: strdup(state);
 			ret = mosquitto_subscribe(mosq, NULL, it->statetopic, mqtt_qos);
 			if (ret)
 				mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->statetopic, mosquitto_strerror(ret));
@@ -346,7 +346,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->ctltopic, mosquitto_strerror(ret));
 			}
 			myfree(it->ctltopic);
-			it->ctltopic = strdup(ctl);
+			it->ctltopic = resolve_relative_path(ctl, it->topic) ?: strdup(ctl);
 			if (mqtt_write_suffix && !no_mqtt_ctl_suffix) {
 				free(it->ctlwrtopic);
 				asprintf(&it->ctlwrtopic, "%s%s", it->ctltopic, mqtt_write_suffix);

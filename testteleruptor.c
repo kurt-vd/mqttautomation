@@ -40,9 +40,6 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default /set)\n"
-	"\n"
-	"Paramteres\n"
-	" PATTERN	A pattern to subscribe for\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -159,7 +156,6 @@ int main(int argc, char *argv[])
 	int opt, ret, waittime;
 	char *str;
 	char mqtt_name[32];
-	int logmask = LOG_UPTO(LOG_NOTICE);
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -202,7 +198,8 @@ int main(int argc, char *argv[])
 	if (mqtt_write_suffix && *mqtt_write_suffix)
 		asprintf(&topic_ctl_set, "%s%s", topic_ctl, mqtt_write_suffix);
 
-	setmylog(NAME, 0, LOG_LOCAL2, loglevel);
+	myopenlog(NAME, 0, LOG_LOCAL2);
+	myloglevel(loglevel);
 
 	/* MQTT start */
 	mosquitto_lib_init();

@@ -8,7 +8,7 @@ PROGS	+= mqttmaclight
 PROGS	+= mqttnow
 PROGS	+= mqttteleruptor
 PROGS	+= rpntest
-#PROGS	+= testteleruptor
+PROGS	+= testteleruptor
 default	: $(PROGS)
 
 PREFIX	= /usr/local

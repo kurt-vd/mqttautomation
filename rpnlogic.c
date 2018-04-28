@@ -48,48 +48,6 @@ void rpn_free_chain(struct rpn *rpn)
 	}
 }
 
-double rpn_strtod(const char *str, char **endp)
-{
-	char *localendp;
-	double value;
-
-	if (!endp)
-		endp = &localendp;
-	value = strtod(str ?: "nan", endp);
-	if (**endp && strchr(":h'", **endp))
-		value += strtod((*endp)+1, endp)/60;
-	if (**endp && strchr(":m\"", **endp))
-		value += strtod((*endp)+1, endp)/3600;
-	return (*endp == str) ? NAN : value;
-}
-const char *rpn_dtostr(double d)
-{
-	static char buf[64];
-	char *str;
-	int ptpresent = 0;
-
-	sprintf(buf, "%lg", d);
-	for (str = buf; *str; ++str) {
-		if (*str == '.')
-			ptpresent = 1;
-		else if (*str == 'e')
-			/* nothing to do anymore */
-			break;
-		else if (ptpresent && *str == '0') {
-			int len = strspn(str, "0");
-			if (!str[len]) {
-				/* entire string (after .) is '0' */
-				*str = 0;
-				if (str > buf && *(str-1) == '.')
-					/* remote '.' too */
-					*(str-1) = 0;
-				break;
-			}
-		}
-	}
-	return buf;
-}
-
 static inline int rpn_toint(double val)
 {
 	/* provide a NAN-safe int conversion */
@@ -319,14 +277,14 @@ static int rpn_do_const(struct stack *st, struct rpn *me)
 static int rpn_do_strconst(struct stack *st, struct rpn *me)
 {
 	rpn_set_strvalue(st, me->strvalue);
-	rpn_push(st, rpn_strtod(st->strvalue ?: "nan", NULL));
+	rpn_push(st, mystrtod(st->strvalue ?: "nan", NULL));
 	return 0;
 }
 
 static int rpn_do_env(struct stack *st, struct rpn *me)
 {
 	rpn_set_strvalue(st, rpn_lookup_env(me->topic, me));
-	rpn_push(st, rpn_strtod(st->strvalue ?: "nan", NULL));
+	rpn_push(st, mystrtod(st->strvalue ?: "nan", NULL));
 	return 0;
 }
 
@@ -336,7 +294,7 @@ static int rpn_do_writeenv(struct stack *st, struct rpn *me)
 		/* stack underflow */
 		return -1;
 
-	rpn_write_env(st->strvalue ?: rpn_dtostr(st->v[st->n-1]), me->topic, me);
+	rpn_write_env(st->strvalue ?: mydtostr(st->v[st->n-1]), me->topic, me);
 	st->n -= 1;
 	return 0;
 }
@@ -890,7 +848,7 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 		rpn = rpn_create();
 		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
 			rpn->run = rpn_do_const;
-			rpn->value = rpn_strtod(tok, NULL);
+			rpn->value = mystrtod(tok, NULL);
 
 		} else if (*tok == '"') {
 			if (tok[strlen(tok)-1] == '"')

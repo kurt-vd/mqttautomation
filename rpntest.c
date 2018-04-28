@@ -8,6 +8,7 @@
 
 #include "lib/libt.h"
 #include "rpnlogic.h"
+#include "common.h"
 
 const char *rpn_lookup_env(const char *str, struct rpn *rpn)
 {
@@ -34,7 +35,7 @@ static void my_rpn_run(struct rpn *rpn)
 		if (j == rpnstack.n-1 && rpnstack.strvalue)
 			printf("%s\"%s\"", j ? " " : "", rpnstack.strvalue);
 		else
-			printf("%s%s", j ? " " : "", rpn_dtostr(rpnstack.v[j]));
+			printf("%s%s", j ? " " : "", mydtostr(rpnstack.v[j]));
 	}
 	printf("\n");
 	fflush(stdout);

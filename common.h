@@ -12,6 +12,9 @@ extern void myopenlog(const char *name, int options, int facility);
 extern void myloglevel(int loglevel);
 extern int mysetloglevelstr(char *str);
 
+extern const char *mydtostr(double d);
+extern double mystrtod(const char *str, char **endp);
+
 #ifdef __cplusplus
 }
 #endif

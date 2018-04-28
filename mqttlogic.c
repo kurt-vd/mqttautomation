@@ -361,7 +361,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;
-	result = rpnstack.strvalue ?: rpn_dtostr(rpnstack.v[rpnstack.n-1]);
+	result = rpnstack.strvalue ?: mydtostr(rpnstack.v[rpnstack.n-1]);
 	/* test if we found something new */
 	if (!strcmp(it->lastvalue ?: "", result))
 		return;

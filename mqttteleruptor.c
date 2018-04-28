@@ -366,7 +366,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */
-		setvalue(it, strtoul(msg->payload ?: "0", NULL, 0));
+		if (!msg->retain)
+			setvalue(it, strtoul(msg->payload ?: "0", NULL, 0));
 
 	} else if ((!mqtt_write_suffix || msg->retain) &&
 			(it = get_item(msg->topic, NULL, 0)) != NULL) {

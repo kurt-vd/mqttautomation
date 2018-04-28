@@ -386,7 +386,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->name = strdup(ledname);
 
 		/* finalize */
-		mylog(LOG_INFO, "new led spec for %s: %s", it->topic, it->sysfsdir);
+		mylog(LOG_INFO, "new led spec for %s: '%s'", it->topic, ledname);
 		init_led(it);
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {

@@ -15,6 +15,9 @@ extern int mysetloglevelstr(char *str);
 extern const char *mydtostr(double d);
 extern double mystrtod(const char *str, char **endp);
 
+/* return absolute path of <path> reletive from <ref> */
+extern char *resolve_relative_path(const char *path, const char *ref);
+
 #ifdef __cplusplus
 }
 #endif

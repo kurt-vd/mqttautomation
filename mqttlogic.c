@@ -199,36 +199,6 @@ int rpn_write_env(const char *value, const char *name, struct rpn *rpn)
 }
 
 /* replace all relative topic references to absolute */
-static char *resolve_relative_path(const char *path, const char *ref)
-{
-	char *abspath, *str, *up;
-
-	if (!path || !ref)
-		return NULL;
-
-	if (!strncmp(path, "./", 2)) {
-		asprintf(&abspath, "%s/%s", ref, path +2);
-		return abspath;
-
-	} else if (!strcmp(path, ".")) {
-		return strdup(ref);
-
-	} else if (!strncmp(path, "..", 2)) {
-		asprintf(&abspath, "%s/%s", ref, path);
-		for (str = strstr(abspath, "/.."); str; str = strstr(abspath, "/..")) {
-			*str = 0;
-			up = strrchr(abspath, '/');
-			if (!up) {
-				*str = '/';
-				break;
-			}
-			memmove(up, str+3, strlen(str+3)+1);
-		}
-		return abspath;
-	}
-	return NULL;
-}
-
 static void rpn_resolve_relative(struct rpn *rpn, const char *topic)
 {
 	char *abstopic;

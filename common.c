@@ -113,3 +113,33 @@ const char *mydtostr(double d)
 	}
 	return buf;
 }
+
+char *resolve_relative_path(const char *path, const char *ref)
+{
+	char *abspath, *str, *up;
+
+	if (!path || !ref)
+		return NULL;
+
+	if (!strncmp(path, "./", 2)) {
+		asprintf(&abspath, "%s/%s", ref, path +2);
+		return abspath;
+
+	} else if (!strcmp(path, ".")) {
+		return strdup(ref);
+
+	} else if (!strncmp(path, "..", 2)) {
+		asprintf(&abspath, "%s/%s", ref, path);
+		for (str = strstr(abspath, "/.."); str; str = strstr(abspath, "/..")) {
+			*str = 0;
+			up = strrchr(abspath, '/');
+			if (!up) {
+				*str = '/';
+				break;
+			}
+			memmove(up, str+3, strlen(str+3)+1);
+		}
+		return abspath;
+	}
+	return NULL;
+}

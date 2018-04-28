@@ -13,6 +13,7 @@
 /* error logging */
 static int logtostderr = -1;
 static int maxloglevel = LOG_WARNING;
+static const char *label;
 
 void myopenlog(const char *name, int options, int facility)
 {
@@ -23,7 +24,8 @@ void myopenlog(const char *name, int options, int facility)
 	if (!logtostderr && name) {
 		openlog(name, options, facility);
 		setlogmask(LOG_UPTO(maxloglevel));
-	}
+	} else
+		label = name;
 }
 
 void myloglevel(int level)
@@ -44,6 +46,8 @@ void mylog(int loglevel, const char *fmt, ...)
 		goto done;
 	va_start(va, fmt);
 	if (logtostderr) {
+		if (label)
+			fprintf(stderr, "%s: ", label);
 		vfprintf(stderr, fmt, va);
 		fputc('\n', stderr);
 		fflush(stderr);

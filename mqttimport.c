@@ -198,14 +198,15 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	for (it = items; it; it = it->next) {
 		if (!strcmp(msg->topic, it->topic)) {
-			if (!it->imported) {
-				if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: ""))
-					send_item(it, "update");
-				else
-					mylog(LOG_INFO, "leave %s", it->topic);
+			if (it->imported)
+				drop_item(it);
+			else if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: ""))
+				send_item(it, "update");
+			else {
+				mylog(LOG_INFO, "leave %s", it->topic);
+				drop_item(it);
 			}
-			drop_item(it);
-			return;
+			break;
 		}
 	}
 }

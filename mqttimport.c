@@ -37,6 +37,7 @@ static const char help_msg[] =
 	"			normal: write topics only when different\n"
 	"			missing: only write missing topics\n"
 	" -f, --force		(legacy) -tforce\n"
+	" -n, --dry-run		Don't actually send info, only report what would be done\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -49,6 +50,7 @@ static struct option long_opts[] = {
 	{ "qos", required_argument, NULL, 'q', },
 	{ "type", required_argument, NULL, 't', },
 	{ "force", no_argument, NULL, 'f', },
+	{ "dry-run", no_argument, NULL, 'n', },
 
 	{ },
 };
@@ -56,7 +58,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:q:t:f";
+static const char optstring[] = "Vv?m:q:t:fn";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -73,6 +75,7 @@ static int type = 0;
 #define TYPE_FORCE	3
 #define TYPE_NORMAL	2
 #define TYPE_MISSING	1
+static int dryrun;
 
 /* state */
 static struct mosquitto *mosq;
@@ -180,6 +183,11 @@ static void send_item(struct item *it, const char *msg)
 {
 	int ret;
 
+	if (dryrun) {
+		mylog(LOG_NOTICE, "%s %s=%s", msg, it->topic, it->value ?: "");
+		drop_item(it);
+		return;
+	}
 	mylog(LOG_NOTICE, "%s %s", msg, it->topic);
 	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(it->value ?: ""), it->value, mqtt_qos, 1);
 	if (ret < 0)
@@ -189,11 +197,13 @@ static void send_item(struct item *it, const char *msg)
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
-	struct item *it;
+	struct item *it, *next;
 
 	if (is_self_sync(msg)) {
-		for (it = items; it; it = it->next)
+		for (it = items; it; it = next) {
+			next = it->next;
 			send_item(it, "import");
+		}
 	}
 
 	for (it = items; it; it = it->next) {
@@ -255,6 +265,9 @@ int main(int argc, char *argv[])
 			type = TYPE_MISSING;
 		else
 			goto printhelp;
+		break;
+	case 'n':
+		dryrun = 1;
 		break;
 
 	default:

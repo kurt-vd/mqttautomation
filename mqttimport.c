@@ -202,7 +202,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	if (is_self_sync(msg)) {
 		for (it = items; it; it = next) {
 			next = it->next;
-			send_item(it, "import");
+			if (!it->imported)
+				send_item(it, "import");
 		}
 	}
 

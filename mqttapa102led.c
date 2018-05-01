@@ -39,7 +39,7 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for timeouts (default '/apa102hw')\n"
-	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default empty)\n"
+	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default /set)\n"
 	" -d, --device=SPIDEV	GIve SPI device file (default /dev/spidev0.0)\n"
 	"\n"
 	"Paramteres\n"
@@ -81,9 +81,8 @@ static void onsigterm(int sig)
 static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/apa102hw";
-static const char *mqtt_write_suffix;
+static const char *mqtt_write_suffix = "/set";
 static int mqtt_suffixlen = 9;
-static int mqtt_write_suffixlen;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -443,8 +442,7 @@ int main(int argc, char *argv[])
 		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'w':
-		mqtt_write_suffix = optarg;
-		mqtt_write_suffixlen = strlen(mqtt_write_suffix);
+		mqtt_write_suffix = *optarg ? optarg : NULL;;
 		break;
 
 	case 'd':

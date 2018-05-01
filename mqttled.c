@@ -34,7 +34,7 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for timeouts (default '/ledhw')\n"
-	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default empty)\n"
+	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default /set)\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -68,9 +68,8 @@ static volatile int sigterm;
 static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/ledhw";
-static const char *mqtt_write_suffix;
+static const char *mqtt_write_suffix = "/set";
 static int mqtt_suffixlen = 6;
-static int mqtt_write_suffixlen;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -431,8 +430,7 @@ int main(int argc, char *argv[])
 		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'w':
-		mqtt_write_suffix = optarg;
-		mqtt_write_suffixlen = strlen(mqtt_write_suffix);
+		mqtt_write_suffix = *optarg ? optarg : NULL;
 		break;
 
 	default:

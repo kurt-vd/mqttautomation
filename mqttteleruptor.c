@@ -79,7 +79,6 @@ static const char *mqtt_suffix = "/teleruptorcfg";
 static const char *mqtt_write_suffix = "/set";
 static int mqtt_suffixlen = 14;
 static int no_mqtt_ctl_suffix;
-static int mqtt_write_suffixlen = 4;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -415,8 +414,7 @@ int main(int argc, char *argv[])
 		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'w':
-		mqtt_write_suffix = optarg;
-		mqtt_write_suffixlen = strlen(mqtt_write_suffix);
+		mqtt_write_suffix = *optarg ? optarg : NULL;
 		break;
 	case 'S':
 		no_mqtt_ctl_suffix = 1;

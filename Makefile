@@ -6,9 +6,11 @@ PROGS	+= mqttled
 PROGS	+= mqttlogic
 PROGS	+= mqttmaclight
 PROGS	+= mqttnow
+PROGS	+= mqttpoort
 PROGS	+= mqttteleruptor
 PROGS	+= rpntest
 PROGS	+= testteleruptor
+PROGS	+= testpoort
 default	: $(PROGS)
 
 PREFIX	= /usr/local
@@ -41,11 +43,15 @@ mqttmaclight: common.o lib/libt.o
 
 mqttnow: common.o lib/libt.o
 
+mqttpoort: LDLIBS+=-lm
+mqttpoort: common.o lib/libt.o
+
 mqttteleruptor: common.o lib/libt.o
 
 rpntest: LDLIBS+=-lm
 rpntest: common.o lib/libt.o rpnlogic.o sunposition.o
 
+testpoort: common.o lib/libt.o
 testteleruptor: common.o lib/libt.o
 
 install: $(PROGS)

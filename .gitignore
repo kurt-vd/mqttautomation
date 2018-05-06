@@ -7,8 +7,10 @@
 /mqttlogic
 /mqttmaclight
 /mqttnow
+/mqttpoort
 /mqttteleruptor
 /rpntest
+/testpoort
 /testteleruptor
 
 # temp

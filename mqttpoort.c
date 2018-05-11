@@ -97,10 +97,12 @@ struct item {
 	char *ctlwrtopic;
 	/* statetopic: topic that reads back the poort */
 	char *statetopic;
+	/* min time between pulses, default 0.5 */
+	double idletime;
 	/* scale, # seconds to fully open/close */
-	double maxtime;
+	double openmaxtime, closemaxtime;
 	/* # seconds initial delay */
-	double starttime;
+	double openstarttime, closestarttime;
 	/* # seconds margin at eol */
 	double eoltime;;
 	/* requested value */
@@ -124,8 +126,9 @@ struct item {
 		#define ST_OPENING	7
 		#define ST_CMARGIN	8
 		#define ST_OMARGIN	9
-
 #define is_moving(state)	((state) >= ST_CSTART)
+	/* cached direction of movement */
+	int currdir;
 };
 
 static const char *const states[] = {
@@ -222,7 +225,8 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	it->currctlval = -1; /* mark invalid */
 	it->topic = strndup(topic, len);
 	it->topiclen = len;
-	it->maxtime = it->starttime = it->eoltime = 0;
+	it->closemaxtime = it->openmaxtime = it->openstarttime = it->closestarttime = it->eoltime = 0;
+	it->idletime = 0.5;
 	if (mqtt_write_suffix)
 		asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
 	asprintf(&it->dirtopic, "%s/dir", it->topic);
@@ -311,7 +315,8 @@ static void poort_publish_dir(struct item *it)
 		"opening",
 	};
 
-	mylog(LOG_INFO, "poort %s: %s, %s", it->topic, dirstrs[dirs[it->state]+1], mydtostr(it->currval));
+	it->currdir = dirs[it->state];
+	mylog(LOG_INFO, "poort %s: %s, %s", it->topic, dirstrs[it->currdir+1], mydtostr(it->currval));
 	sprintf(buf, "%i", dirs[it->state]);
 	ret = mosquitto_publish(mosq, NULL, it->dirtopic, strlen(buf), buf, mqtt_qos, 1);
 	if (ret < 0)
@@ -321,20 +326,35 @@ static void poort_publish_dir(struct item *it)
 /* returns the travel time needed to reach reqval */
 static double travel_time_needed(struct item *it)
 {
-	return (it->reqval - it->currval)*it->maxtime;
+	if (it->reqval < it->currval)
+		return (it->reqval - it->currval)*it->closemaxtime;
+	else
+		return (it->reqval - it->currval)*it->openmaxtime;
 }
 
 static void poort_moved(struct item *it)
 {
 	double now = libt_now();
-	double delta = (now - it->currvaltime)/it->maxtime;
+	double delta;
+
+	if (it->currdir < 0)
+		delta = (now - it->currvaltime)/it->closemaxtime;
+	else if (it->currdir > 0)
+		delta = (now - it->currvaltime)/it->openmaxtime;
+	else
+		delta = 0;
 
 	switch (it->state) {
 	case ST_CSTART:
+		if ((now - it->currvaltime) > (it->closestarttime-0.05)) {
+			it->currvaltime += it->closestarttime;
+			it->state = ST_CLOSING;
+		}
+		break;
 	case ST_OSTART:
-		if ((now - it->currvaltime) > (it->starttime-0.05)) {
-			it->currvaltime += it->starttime;
-			it->state = (it->state == ST_CSTART) ? ST_CLOSING : ST_OPENING;
+		if ((now - it->currvaltime) > (it->openstarttime-0.05)) {
+			it->currvaltime += it->openstarttime;
+			it->state = ST_OPENING;
 		}
 		break;
 	case ST_CMARGIN:
@@ -398,8 +418,11 @@ static void on_poort_moved(void *dat)
 		}
 		break;
 	case ST_CSTART:
+		delay = it->currvaltime + it->closestarttime - libt_now();
+		libt_add_timeout(delay, on_poort_moved, it);
+		break;
 	case ST_OSTART:
-		delay = it->currvaltime + it->starttime - libt_now();
+		delay = it->currvaltime + it->openstarttime - libt_now();
 		libt_add_timeout(delay, on_poort_moved, it);
 		break;
 	case ST_CLOSING:
@@ -445,8 +468,8 @@ static void idle_ctl(void *dat)
 	case ST_CSTOPPED:
 	case ST_OSTOPPED:
 		/* measure difference in traveltime */
-		if (fabs(travel_time_needed(it)) > 1)
-			/* start moving if we need >= 1sec travel */
+		if (fabs(travel_time_needed(it)) > (0.5+it->idletime))
+			/* start moving if we need have enough time to stop again */
 			set_ctl(it);
 		break;
 	case ST_OSTART:
@@ -486,7 +509,7 @@ static void reset_ctl(void *dat)
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
 	it->ctlval = 2;
-	libt_add_timeout(0.5, idle_ctl, it);
+	libt_add_timeout(it->idletime, idle_ctl, it);
 	mylog(LOG_INFO, "poort %s: pushed bttn", it->topic);
 }
 
@@ -638,12 +661,18 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			if (value)
 				/* null terminate */
 				*value++ = 0;
-			if (!strcmp(tok, "maxtime"))
-				it->maxtime = strtod(value, NULL);
-			else if (!strcmp(tok, "starttime"))
-				it->starttime = strtod(value, NULL);
+			if (!strcmp(tok, "opentime"))
+				it->openmaxtime = strtod(value, NULL);
+			else if (!strcmp(tok, "closetime"))
+				it->closemaxtime = strtod(value, NULL);
+			else if (!strcmp(tok, "openstarttime"))
+				it->openstarttime = strtod(value, NULL);
+			else if (!strcmp(tok, "closestarttime"))
+				it->closestarttime = strtod(value, NULL);
 			else if (!strcmp(tok, "eoltime"))
 				it->eoltime = strtod(value, NULL);
+			else if (!strcmp(tok, "idletime"))
+				it->idletime = strtod(value, NULL);
 
 		}
 		if (!isnan(it->reqval))
@@ -666,12 +695,19 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	} else if ((it = get_item_by_state(msg->topic)) != NULL) {
 		if (!strcmp(msg->payload ?: "", "1")) {
+			if (it->state == ST_CLOSING) {
+				poort_moved(it);
+				mylog(LOG_INFO, "poort %s: closing %.2lf, closed detected", it->topic, it->currval);
+			} else if (it->state == ST_CMARGIN) {
+				mylog(LOG_INFO, "poort %s: closing margin %.1lfs, closed detected", it->topic, libt_now() - it->currvaltime);
+			} else {
+				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
+			}
 			it->currval = 0;
 			it->state = ST_CLOSED;
 			poort_publish_dir(it);
 			poort_publish(it);
 			libt_remove_timeout(on_poort_moved, it);
-			mylog(LOG_INFO, "poort %s closed detected", it->topic);
 			if (!it->ctlval && it->reqval > 0.1)
 				set_ctl(it);
 		} else if (it->state == ST_CLOSED) {

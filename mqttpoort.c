@@ -413,6 +413,8 @@ static void on_poort_moved(void *dat)
 			 */
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
+			if (!it->ctlval && it->reqval < 0.9)
+				set_ctl(it);
 		} else {
 			libt_add_timeout(0.5, on_poort_moved, it);
 		}

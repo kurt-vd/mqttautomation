@@ -621,6 +621,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			return;
 		}
 		/* reconfigure in */
+		state = resolve_relative_path(state, it->topic) ?: strdup(state);
 		if (!it->statetopic || strcmp(it->statetopic, state)) {
 			if (it->statetopic) {
 				ret = mosquitto_unsubscribe(mosq, NULL, it->statetopic);
@@ -628,13 +629,15 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->statetopic, mosquitto_strerror(ret));
 				free(it->statetopic);
 			}
-			it->statetopic = strdup(state);
+			it->statetopic = state;
 			ret = mosquitto_subscribe(mosq, NULL, it->statetopic, mqtt_qos);
 			if (ret)
 				mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->statetopic, mosquitto_strerror(ret));
 			it->currval = NAN;
-		}
+		} else
+			free(state);
 		/* reconfigure out */
+		ctl = resolve_relative_path(ctl, it->topic) ?: strdup(ctl);
 		if (!it->ctltopic || strcmp(it->ctltopic, ctl)) {
 			if (it->ctltopic && mqtt_write_suffix && !no_mqtt_ctl_suffix) {
 				ret = mosquitto_unsubscribe(mosq, NULL, it->ctltopic);
@@ -642,7 +645,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->ctltopic, mosquitto_strerror(ret));
 			}
 			myfree(it->ctltopic);
-			it->ctltopic = strdup(ctl);
+			it->ctltopic = ctl;
 			if (mqtt_write_suffix && !no_mqtt_ctl_suffix) {
 				free(it->ctlwrtopic);
 				asprintf(&it->ctlwrtopic, "%s%s", it->ctltopic, mqtt_write_suffix);
@@ -655,7 +658,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			libt_remove_timeout(reset_ctl, it);
 			libt_remove_timeout(idle_ctl, it);
 			libt_remove_timeout(on_poort_moved, it);
-		}
+		} else
+			free(ctl);
 		/* parse remaining tokens */
 		char *tok, *value;
 		for (tok = strtok(NULL, " \t"); tok; tok = strtok(NULL, " \t")) {

@@ -375,6 +375,14 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	} else if ((it = get_item_by_state(msg->topic)) != NULL) {
 		it->currval = strtol(msg->payload ?: "-1", NULL, 0);
+		if (it->writetopic || it->reqval != it->currval) {
+			static char buf[32];
+
+			sprintf(buf, "%i", it->currval);
+			ret = mosquitto_publish(mosq, NULL, it->topic, strlen(buf), buf, mqtt_qos, 1);
+			if (ret < 0)
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctltopic, mosquitto_strerror(ret));
+		}
 
 	} else if ((it = get_item_by_ctl(msg->topic)) != NULL) {
 		it->currctlval = strtol(msg->payload ?: "-1", NULL, 0);

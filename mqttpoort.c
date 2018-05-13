@@ -40,7 +40,6 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for configuration (default '/poortcfg')\n"
-	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default /set)\n"
 	" -S, --nosuffix	Write control topic without suffix\n"
 	" -k, --homekit=SUFFIX	Report 'homekit' status to this suffix\n"
 	"\n"
@@ -78,7 +77,6 @@ static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/poortcfg";
 static const char *const mqtt_write_suffix = "/set";
-static int mqtt_suffixlen = 14;
 static int no_mqtt_ctl_suffix;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
@@ -827,7 +825,6 @@ int main(int argc, char *argv[])
 		break;
 	case 's':
 		mqtt_suffix = optarg;
-		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'S':
 		no_mqtt_ctl_suffix = 1;

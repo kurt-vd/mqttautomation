@@ -515,6 +515,7 @@ static void reset_ctl(void *dat)
 	mylog(LOG_INFO, "poort %s: pushed bttn", it->topic);
 }
 
+static void on_ctl_set(struct item *it);
 static void set_ctl(struct item *it)
 {
 	int ret;
@@ -525,6 +526,11 @@ static void set_ctl(struct item *it)
 	ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "1", mqtt_qos, !it->ctlwrtopic);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
+	on_ctl_set(it);
+}
+
+static void on_ctl_set(struct item *it)
+{
 	it->ctlval = 1;
 	libt_add_timeout(0.5, reset_ctl, it);
 
@@ -730,10 +736,24 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		}
 
 	} else if ((it = get_item_by_ctl(msg->topic)) != NULL) {
-		it->currctlval = strtol(msg->payload ?: "-1", NULL, 0);
-		if (!it->ctlwrtopic && msg->retain)
-			it->ctlval = it->currctlval;
+		int oldval = it->currctlval;
 
+		it->currctlval = strtol(msg->payload ?: "-1", NULL, 0);
+		if (msg->retain) {
+			if (!it->ctlwrtopic)
+				it->ctlval = it->currctlval;
+			return;
+		}
+		if (it->currctlval && !oldval && !it->ctlval) {
+			/* unexpected rising edge */
+			mylog(LOG_WARNING, "poort %s manual controlled", it->topic);
+			on_ctl_set(it);
+			if (it->currdir)
+				/* set reqval to 0 or 1 depending on new direction */
+				it->reqval = (1+it->currdir)/2;
+			else
+				it->reqval = it->currval;
+		}
 	}
 }
 

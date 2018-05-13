@@ -42,6 +42,7 @@ static const char help_msg[] =
 	" -s, --suffix=STR	Give MQTT topic suffix for configuration (default '/poortcfg')\n"
 	" -w, --write=STR	Give MQTT topic suffix for writing the topic (default /set)\n"
 	" -S, --nosuffix	Write control topic without suffix\n"
+	" -k, --homekit=SUFFIX	Report 'homekit' status to this suffix\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -56,6 +57,7 @@ static struct option long_opts[] = {
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
 	{ "nosuffix", no_argument, NULL, 'S', },
+	{ "homekit", required_argument, NULL, 'k', },
 
 	{ },
 };
@@ -63,7 +65,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:s:S";
+static const char optstring[] = "Vv?m:s:Sk:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -80,6 +82,7 @@ static int mqtt_suffixlen = 14;
 static int no_mqtt_ctl_suffix;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
+static const char *mqtt_homekit_suffix;
 
 /* state */
 static struct mosquitto *mosq;
@@ -97,6 +100,8 @@ struct item {
 	char *ctlwrtopic;
 	/* statetopic: topic that reads back the poort */
 	char *statetopic;
+	/* homekittopic: topic to publish homekit state */
+	char *homekittopic;
 	/* min time between pulses, default 0.5 */
 	double idletime;
 	/* scale, # seconds to fully open/close */
@@ -230,6 +235,8 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	if (mqtt_write_suffix)
 		asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
 	asprintf(&it->dirtopic, "%s/dir", it->topic);
+	if (mqtt_homekit_suffix)
+		asprintf(&it->homekittopic, "%s%s", it->topic, mqtt_homekit_suffix);
 
 	/* subscribe */
 	ret = mosquitto_subscribe(mosq, NULL, it->writetopic ?: it->topic, mqtt_qos);
@@ -272,6 +279,7 @@ static void drop_item(struct item *it)
 	free(it->ctltopic);
 	myfree(it->ctlwrtopic);
 	free(it->statetopic);
+	myfree(it->homekittopic);
 	free(it);
 	/* free timers */
 	libt_remove_timeout(reset_ctl, it);
@@ -323,6 +331,31 @@ static void poort_publish_dir(struct item *it)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->dirtopic, mosquitto_strerror(ret));
 }
 
+static void poort_publish_homekit(struct item *it)
+{
+	static const char *const strs[10] = {
+		[ST_CLOSED] = "closed",
+		[ST_CSTART] = "closing",
+		[ST_CLOSING] = "closing",
+		[ST_CMARGIN] = "closing",
+		[ST_CSTOPPED] = "stopped",
+		[ST_OPEN] = "open",
+		[ST_OSTOPPED] = "stopped",
+		[ST_OSTART] = "opening",
+		[ST_OPENING] = "opening",
+		[ST_OMARGIN] = "opening",
+	};
+	int ret;
+	const char *str = strs[it->state];
+
+	if (!it->homekittopic)
+		return;
+	mylog(LOG_INFO, "poort %s: homekit '%s'", it->topic, str);
+	ret = mosquitto_publish(mosq, NULL, it->homekittopic, strlen(str), str, mqtt_qos, 1);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->homekittopic, mosquitto_strerror(ret));
+}
+
 /* returns the travel time needed to reach reqval */
 static double travel_time_needed(struct item *it)
 {
@@ -349,12 +382,14 @@ static void poort_moved(struct item *it)
 		if ((now - it->currvaltime) > (it->closestarttime-0.05)) {
 			it->currvaltime += it->closestarttime;
 			it->state = ST_CLOSING;
+			poort_publish_homekit(it);
 		}
 		break;
 	case ST_OSTART:
 		if ((now - it->currvaltime) > (it->openstarttime-0.05)) {
 			it->currvaltime += it->openstarttime;
 			it->state = ST_OPENING;
+			poort_publish_homekit(it);
 		}
 		break;
 	case ST_CMARGIN:
@@ -369,6 +404,7 @@ static void poort_moved(struct item *it)
 			it->state = ST_OPEN;
 			it->currval = 1;
 			poort_publish(it);
+			poort_publish_homekit(it);
 			set_ctl(it);
 		} else
 			poort_publish(it);
@@ -379,6 +415,7 @@ static void poort_moved(struct item *it)
 		if (it->currval < 0) {
 			it->currval = 0;
 			it->state = ST_CMARGIN;
+			poort_publish_homekit(it);
 		}
 		poort_publish(it);
 		break;
@@ -388,6 +425,7 @@ static void poort_moved(struct item *it)
 		if (it->currval > 1) {
 			it->currval = 1;
 			it->state = ST_OMARGIN;
+			poort_publish_homekit(it);
 		}
 		poort_publish(it);
 		break;
@@ -413,6 +451,7 @@ static void on_poort_moved(void *dat)
 			 */
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
+			poort_publish_homekit(it);
 			if (!it->ctlval && it->reqval < 0.9)
 				set_ctl(it);
 		} else {
@@ -561,6 +600,7 @@ static void on_ctl_set(struct item *it)
 	 */
 	it->state = newstate;
 	poort_publish_dir(it);
+	poort_publish_homekit(it);
 	/* start counting movement */
 	it->currvaltime = libt_now();
 	on_poort_moved(it);
@@ -719,6 +759,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			it->state = ST_CLOSED;
 			poort_publish_dir(it);
 			poort_publish(it);
+			poort_publish_homekit(it);
 			libt_remove_timeout(on_poort_moved, it);
 			if (!it->ctlval && it->reqval > 0.1)
 				set_ctl(it);
@@ -726,10 +767,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			if (msg->retain) {
 				mylog(LOG_WARNING, "poort %s is not closed", it->topic);
 				it->state = ST_OSTOPPED;
+				poort_publish_homekit(it);
 			} else {
 				mylog(LOG_WARNING, "poort %s opened unexpectedly", it->topic);
 				it->state = ST_OSTART;
 				poort_publish_dir(it);
+				poort_publish_homekit(it);
 				it->currvaltime = libt_now();
 				libt_add_timeout(0.5, on_poort_moved, it);
 			}
@@ -788,6 +831,9 @@ int main(int argc, char *argv[])
 		break;
 	case 'S':
 		no_mqtt_ctl_suffix = 1;
+		break;
+	case 'k':
+		mqtt_homekit_suffix = optarg;
 		break;
 
 	default:

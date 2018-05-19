@@ -41,7 +41,7 @@ static const char help_msg[] =
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for configuration (default '/poortcfg')\n"
 	" -S, --nosuffix	Write control topic without suffix\n"
-	" -k, --homekit=SUFFIX	Report 'homekit' status to this suffix\n"
+	" -k, --homekit=SUFFIX[,WRSUFFIX]	Report/accept 'homekit' status to this suffix\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -81,6 +81,7 @@ static int no_mqtt_ctl_suffix;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 static const char *mqtt_homekit_suffix;
+static const char *mqtt_homekit_wrsuffix;
 
 /* state */
 static struct mosquitto *mosq;
@@ -100,6 +101,7 @@ struct item {
 	char *statetopic;
 	/* homekittopic: topic to publish homekit state */
 	char *homekittopic;
+	char *homekitwrtopic;
 	/* min time between pulses, default 0.5 */
 	double idletime;
 	/* scale, # seconds to fully open/close */
@@ -235,11 +237,18 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	asprintf(&it->dirtopic, "%s/dir", it->topic);
 	if (mqtt_homekit_suffix)
 		asprintf(&it->homekittopic, "%s%s", it->topic, mqtt_homekit_suffix);
+	if (mqtt_homekit_wrsuffix)
+		asprintf(&it->homekitwrtopic, "%s%s", it->topic, mqtt_homekit_wrsuffix);
 
 	/* subscribe */
 	ret = mosquitto_subscribe(mosq, NULL, it->writetopic ?: it->topic, mqtt_qos);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
+	if (it->homekitwrtopic) {
+		ret = mosquitto_subscribe(mosq, NULL, it->homekitwrtopic, mqtt_qos);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->homekitwrtopic, mosquitto_strerror(ret));
+	}
 
 	/* insert in linked list */
 	it->next = items;
@@ -270,6 +279,12 @@ static void drop_item(struct item *it)
 	ret = mosquitto_unsubscribe(mosq, NULL, it->writetopic ?: it->topic);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
+	if (it->homekitwrtopic) {
+		ret = mosquitto_unsubscribe(mosq, NULL, it->homekitwrtopic);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->homekitwrtopic, mosquitto_strerror(ret));
+	}
+
 	/* free memory */
 	free(it->topic);
 	myfree(it->writetopic);
@@ -278,6 +293,7 @@ static void drop_item(struct item *it)
 	myfree(it->ctlwrtopic);
 	free(it->statetopic);
 	myfree(it->homekittopic);
+	myfree(it->homekitwrtopic);
 	free(it);
 	/* free timers */
 	libt_remove_timeout(reset_ctl, it);
@@ -738,6 +754,15 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		else if (!msg->retain)
 			setvalue(it, strtod(msg->payload ?: "0", NULL));
 
+	} else if (!msg->retain && (it = get_item(msg->topic, mqtt_homekit_wrsuffix, 0)) != NULL) {
+		/* this is the write topic via homekit */
+		if (!msg->payloadlen)
+			stop(it);
+		else if (!strcmp(msg->payload, "open"))
+			setvalue(it, 1);
+		else if (!strcmp(msg->payload, "closed"))
+			setvalue(it, 0);
+
 	} else if ((!mqtt_write_suffix || msg->retain) &&
 			(it = get_item(msg->topic, NULL, 0)) != NULL) {
 		/* this is the main led topic */
@@ -831,6 +856,11 @@ int main(int argc, char *argv[])
 		break;
 	case 'k':
 		mqtt_homekit_suffix = optarg;
+		str = strchr(mqtt_homekit_suffix, ',');
+		if (str) {
+			*str++ = 0;
+			mqtt_homekit_wrsuffix = str;
+		}
 		break;
 
 	default:

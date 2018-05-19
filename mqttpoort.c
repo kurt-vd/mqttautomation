@@ -132,6 +132,9 @@ struct item {
 		#define ST_CMARGIN	8
 		#define ST_OMARGIN	9
 #define is_moving(state)	((state) >= ST_CSTART)
+	int flags;
+		/* special behaviour: ctrl during close will open */
+		#define FL_NO_CLOSE_STOPPED	0x01
 	/* cached direction of movement */
 	int currdir;
 };
@@ -601,11 +604,13 @@ static void on_ctl_set(struct item *it)
 		[ST_OMARGIN] = ST_OSTOPPED,
 	};
 	int newstate = newstates[it->state];
-#if 0
-	/* special handling: btn pushed during close opens the port */
-	if (newstate == ST_CSTOPPED)
-		newstate == ST_OSTART;
-#endif
+
+	if (it->flags & FL_NO_CLOSE_STOPPED) {
+		/* special handling: btn pushed during close opens the port */
+		if (newstate == ST_CSTOPPED)
+			newstate = ST_OSTART;
+	}
+
 	/* stop counting movement */
 	poort_moved(it);
 	libt_remove_timeout(on_poort_moved, it);
@@ -721,6 +726,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		} else
 			free(ctl);
 		/* parse remaining tokens */
+		it->flags = 0;
 		char *tok, *value;
 		for (tok = strtok(NULL, " \t"); tok; tok = strtok(NULL, " \t")) {
 			value = strchr(tok, '=');
@@ -739,6 +745,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				it->eoltime = strtod(value, NULL);
 			else if (!strcmp(tok, "idletime"))
 				it->idletime = strtod(value, NULL);
+			else if (!strcmp(tok, "noclosestop"))
+				it->flags |= FL_NO_CLOSE_STOPPED;
 
 		}
 		if (!isnan(it->reqval))

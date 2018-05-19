@@ -174,7 +174,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	return it;
 }
 
-static void drop_item(struct item *it)
+static void drop_item(struct item *it, int pubnull)
 {
 	/* remove from list */
 	if (it->prev)
@@ -182,7 +182,8 @@ static void drop_item(struct item *it)
 	if (it->next)
 		it->next->prev = it->prev;
 	/* clean mqtt topic */
-	mosquitto_publish(mosq, NULL, it->topic, 0, NULL, 0, 1);
+	if (pubnull)
+		mosquitto_publish(mosq, NULL, it->topic, 0, NULL, 0, 1);
 	/* free memory */
 	free(it->topic);
 	free(it);
@@ -198,6 +199,27 @@ static void pubitem(struct item *it, const char *payload)
 	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload), payload, mqtt_qos, !it->asbutton);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
+}
+
+#define getbit(x, vec)	((vec[(x)/8] >> ((x) % 8)) & 1)
+static void pubinitial(struct item *it)
+{
+	static uint8_t state[KEY_CNT/8+1];
+	static char buf[32];
+
+	/* load valid keys */
+	if (ioctl(infd, EVIOCGBIT(EV_KEY, sizeof(state)), state) < 0)
+		mylog(LOG_ERR, "ioctl %s EVIOCGBIT(KEY): %s", inputdev, ESTR(errno));
+	if (!getbit(it->evcode, state)) {
+		/* remove item from this input device */
+		drop_item(it, 0);
+		return;
+	}
+	/* load current state */
+	if (ioctl(infd, EVIOCGKEY(sizeof(state)), state) < 0)
+		mylog(LOG_ERR, "ioctl %s EVIOCGKEY: %s", inputdev, ESTR(errno));
+	sprintf(buf, "%i", getbit(it->evcode, state));
+	pubitem(it, buf);
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -219,7 +241,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* remove on null config */
 		if (!msg->payloadlen || !forme) {
 			mylog(LOG_INFO, "removed inputevent for %s", it->topic);
-			drop_item(it);
+			drop_item(it, 1);
 			return;
 		}
 
@@ -240,7 +262,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			mylog(LOG_WARNING, "unparsed inputevent for %s", it->topic);
 		if (!it->evtype || !it->evcode)
 			mylog(LOG_WARNING, "inputevent for %s is invalid!", it->topic);
-		/* TODO: publish initial state */
+		pubinitial(it);
 	}
 }
 

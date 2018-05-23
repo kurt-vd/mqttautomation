@@ -118,6 +118,8 @@ struct item {
 	/* the value of the ctr line, with potential feedback */
 	int ctlval;
 	int currctlval;
+	/* value of the state line */
+	int stateval;
 	/* # retries passed */
 	int nretry;
 	int state;
@@ -535,6 +537,10 @@ static void idle_ctl(void *dat)
 	case ST_OPENING:
 	case ST_OMARGIN:
 	case ST_OPEN:
+		if (it->stateval) {
+			it->state = ST_CLOSED;
+			set_ctl(it);
+		}
 		/* TODO: when is this triggered? */
 		if (travel_time_needed(it) < -0.5)
 			/* trigger again */
@@ -778,7 +784,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		setvalue(it, strtod(msg->payload ?: "0", NULL));
 
 	} else if ((it = get_item_by_state(msg->topic)) != NULL) {
-		if (!strcmp(msg->payload ?: "", "1")) {
+		it->stateval = strtoul(msg->payload ?: "0", NULL, 0);
+
+		if (it->stateval) {
 			if (it->state == ST_CLOSING) {
 				poort_moved(it);
 				mylog(LOG_INFO, "poort %s: closing %.2lf, closed detected", it->topic, it->currval);

@@ -412,16 +412,17 @@ static void poort_moved(struct item *it)
 	case ST_CMARGIN:
 		if (now - it->currvaltime > it->eoltime) {
 			/* less than 10msec away from closed+eoltime */
+			it->state = ST_OPEN;
+			it->currval = 1.1;
+			poort_publish(it);
+			poort_publish_homekit(it);
+
 			if (++it->nretry > 3) {
 				mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
 				return;
 			}
 			mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
 			/* retry */
-			it->state = ST_OPEN;
-			it->currval = 1;
-			poort_publish(it);
-			poort_publish_homekit(it);
 			set_ctl(it);
 		} else
 			poort_publish(it);

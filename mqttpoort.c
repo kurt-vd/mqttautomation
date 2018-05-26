@@ -546,6 +546,7 @@ static void idle_ctl(void *dat)
 	case ST_OPEN:
 		if (it->stateval) {
 			it->state = ST_CLOSED;
+			poort_publish_homekit(it);
 			if (posctrl(it))
 				/* retry opening */
 				set_ctl(it);

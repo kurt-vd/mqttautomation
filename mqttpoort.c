@@ -110,7 +110,9 @@ struct item {
 	double openstarttime, closestarttime;
 	/* # seconds margin at eol */
 	double eoltime;;
-	/* requested value */
+	/* requested value
+	 * When NAN, the logic will not try to reach the target position
+	 */
 	double reqval;
 	/* current value */
 	double currval;
@@ -140,6 +142,7 @@ struct item {
 	/* cached direction of movement */
 	int currdir;
 };
+#define posctrl(it) (!isnan(it->reqval))
 
 static const char *const states[] = {
 	[ST_CLOSED] = "closed",
@@ -419,13 +422,15 @@ static void poort_moved(struct item *it)
 			poort_publish(it);
 			poort_publish_homekit(it);
 
-			if (++it->nretry > 3) {
-				mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
-				return;
+			if (posctrl(it)) {
+				if (++it->nretry > 3) {
+					mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
+					return;
+				}
+				mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
+				/* retry */
+				set_ctl(it);
 			}
-			mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
-			/* retry */
-			set_ctl(it);
 		} else
 			poort_publish(it);
 		break;
@@ -472,7 +477,7 @@ static void on_poort_moved(void *dat)
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
 			poort_publish_homekit(it);
-			if (!it->ctlval && it->reqval < 0.9)
+			if (posctrl(it) && !it->ctlval && it->reqval < 0.9)
 				set_ctl(it);
 		} else {
 			libt_add_timeout(0.5, on_poort_moved, it);
@@ -490,14 +495,16 @@ static void on_poort_moved(void *dat)
 	case ST_OPENING:
 		delay = 0.5;
 
-		if (it->ctlval)
+		if (it->ctlval || !posctrl(it))
 			; /* don't make a smaller delay */
 		else if (it->state == ST_CLOSING)
 			delay = -travel_time_needed(it);
 		else if (it->state == ST_OPENING)
 			delay = travel_time_needed(it);
 		/* limit delay */
-		if (delay < 0.05) {
+		if (!posctrl(it))
+			delay = 0.5;
+		else if (delay < 0.05) {
 			if (it->reqval > 0.1 && it->reqval < 0.9) {
 				/* stop the poort! */
 				set_ctl(it);
@@ -529,7 +536,7 @@ static void idle_ctl(void *dat)
 	case ST_CSTOPPED:
 	case ST_OSTOPPED:
 		/* measure difference in traveltime */
-		if (fabs(travel_time_needed(it)) > (0.5+it->idletime))
+		if (posctrl(it) && fabs(travel_time_needed(it)) > (0.5+it->idletime))
 			/* start moving if we need have enough time to stop again */
 			set_ctl(it);
 		break;
@@ -539,10 +546,12 @@ static void idle_ctl(void *dat)
 	case ST_OPEN:
 		if (it->stateval) {
 			it->state = ST_CLOSED;
-			set_ctl(it);
+			if (posctrl(it))
+				/* retry opening */
+				set_ctl(it);
 		}
 		/* TODO: when is this triggered? */
-		if (travel_time_needed(it) < -0.5)
+		if (posctrl(it) && travel_time_needed(it) < -0.5)
 			/* trigger again */
 			set_ctl(it);
 		break;
@@ -551,7 +560,7 @@ static void idle_ctl(void *dat)
 	case ST_CLOSING:
 	case ST_CMARGIN:
 	case ST_CLOSED:
-		if (travel_time_needed(it) > 0.5)
+		if (posctrl(it) && travel_time_needed(it) > 0.5)
 			/* trigger again */
 			set_ctl(it);
 		break;
@@ -793,6 +802,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			} else if (it->state == ST_CMARGIN) {
 				mylog(LOG_INFO, "poort %s: closing margin %.1lfs, closed detected", it->topic, libt_now() - it->currvaltime);
 			} else {
+				/* disable position control */
+				it->reqval = NAN;
 				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
 			}
 			it->currval = 0;
@@ -801,7 +812,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			poort_publish(it);
 			poort_publish_homekit(it);
 			libt_remove_timeout(on_poort_moved, it);
-			if (!it->ctlval && it->reqval > 0.1)
+			if (posctrl(it) && !it->ctlval && it->reqval > 0.1)
 				set_ctl(it);
 		} else if (it->state == ST_CLOSED) {
 			if (msg->retain) {
@@ -810,6 +821,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				poort_publish_homekit(it);
 			} else {
 				mylog(LOG_WARNING, "poort %s opened unexpectedly", it->topic);
+				/* change to direction ctl */
+				it->reqval = NAN;
 				it->state = ST_OSTART;
 				poort_publish_dir(it);
 				poort_publish_homekit(it);
@@ -829,13 +842,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		}
 		if (it->currctlval && !oldval && !it->ctlval) {
 			/* unexpected rising edge */
-			mylog(LOG_WARNING, "poort %s manual controlled", it->topic);
+			mylog(LOG_INFO, "poort %s: direct controlled", it->topic);
+			it->reqval = NAN;
 			on_ctl_set(it);
-			if (it->currdir)
-				/* set reqval to 0 or 1 depending on new direction */
-				it->reqval = (1+it->currdir)/2;
-			else
-				it->reqval = it->currval;
 		}
 	}
 }

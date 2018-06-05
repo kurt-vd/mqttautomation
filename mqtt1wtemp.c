@@ -277,6 +277,7 @@ static void w1temp_publish_all(void *dat)
 			/* publish, retained when writing the topic */
 			mosquitto_publish(mosq, NULL, topicbuf, strlen(valbuf), valbuf, 0, 0);
 		}
+		globfree(&gl);
 	}
 	libt_add_timeout(60, w1temp_publish_all, dat);
 }

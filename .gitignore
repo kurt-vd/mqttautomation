@@ -1,6 +1,7 @@
 # output
 /mqtt1wtemp
 /mqttapa102led
+/mqttiio
 /mqttinputevent
 /mqttimport
 /mqttled

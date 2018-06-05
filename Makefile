@@ -1,6 +1,7 @@
 PROGS	= mqttinputevent
 PROGS	+= mqtt1wtemp
 PROGS	+= mqttapa102led
+PROGS	+= mqttiio
 PROGS	+= mqttimport
 PROGS	+= mqttled
 PROGS	+= mqttlogic
@@ -30,6 +31,8 @@ CPPFLAGS += -DVERSION=\"$(VERSION)\"
 mqtt1wtemp: common.o lib/libt.o
 
 mqttapa102led: common.o lib/libt.o
+
+mqttiio: common.o lib/libt.o lib/libe.o
 
 mqttimport: common.o
 mqttinputevent: common.o

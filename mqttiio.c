@@ -90,6 +90,9 @@ struct item {
 	int topiclen;
 	char *device;
 	char *element;
+
+	double hyst;
+	double oldvalue;
 };
 
 struct item *items;
@@ -162,6 +165,10 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	memset(it, 0, sizeof(*it));
 	it->topic = strndup(topic, len);
 	it->topiclen = len;
+
+	/* set defaults */
+	it->hyst = NAN;
+	it->oldvalue = NAN;
 
 	/* insert in linked list */
 	it->next = items;
@@ -266,9 +273,22 @@ struct iioel {
 	double scale;
 	double offset;
 	double si_mult;
+	/* standard hysteresis for this element
+	 * this allows the program to set hysteresis
+	 * based on type of element,
+	 * so to limit output with '-N' program option
+	 */
+	double hyst;
+	double oldvalue;
 };
 
 static struct iiodev *iiodevs;
+
+/* round/align to @align */
+const char *mydtostr_align(double d, double align)
+{
+	return mydtostr(d - fmod(d, align));
+}
 
 static void iiodev_data(int fd, void *dat)
 {
@@ -299,6 +319,7 @@ static void iiodev_data(int fd, void *dat)
 				!memcmp(dev->dat+el->location, dev->olddat+el->location, el->bytesused))
 			/* no change */
 			continue;
+		payload = NULL;
 		if (newdatvalid < requiredsize) {
 			if (dev->olddatvalid < requiredsize)
 				/* no change, both old & new data
@@ -374,18 +395,15 @@ static void iiodev_data(int fd, void *dat)
 		}
 
 		valf *= el->si_mult;
-		payload = mydtostr(valf);
 payload_ready:
 		nitems = 0;
 		if (nomqtt) {
-			int j;
-			char *str;
-			static char hex[64];
-
-			for (str = hex, j = el->location; j < requiredsize; ++j)
-				str += sprintf(str, "%02x", dev->dat[j]);
-
-			printf("%s %s: %s (%s)\n", dev->hname, el->name, payload, hex);
+			if (fabs(el->oldvalue - valf) < el->hyst)
+				;
+			else {
+				printf("%s %s: %s\n", dev->hname, el->name, payload ?: mydtostr_align(valf, el->hyst));
+				el->oldvalue = valf;
+			}
 			continue;
 		}
 
@@ -393,17 +411,26 @@ payload_ready:
 			if (strcmp(it->device, dev->hname) ||
 					strcmp(it->element, el->name))
 				continue;
-			pubitem(it, payload);
 			++nitems;
+			/* inherit hysteris if not set */
+			if (isnan(it->hyst))
+				it->hyst = el->hyst;
+			/* test against hysteresis */
+			if (fabs(it->oldvalue - valf) < it->hyst)
+				continue;
+			pubitem(it, mydtostr_align(valf, it->hyst));
+			it->oldvalue = valf;
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;
 
-			/* publish, volatile for buttons, retained for the rest */
-			ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(payload), payload, mqtt_qos, 1);
+			/* publish to unknow topic */
+			payload = payload ?: mydtostr_align(valf, el->hyst);
+			ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(payload), payload, mqtt_qos, 0);
 			if (ret < 0)
 				mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_unknown_topic, mosquitto_strerror(ret));
 		}
+		el->oldvalue = valf;
 	}
 	memcpy(dev->olddat, dev->dat, dev->datsize);
 	dev->olddatvalid = newdatvalid;
@@ -503,12 +530,18 @@ parse_scale:
 	el->scale = strtod(prop, NULL);
 
 	/* find si multiplier */
-	if (!strncmp("temp", el->name, 4))
+	if (!strncmp("temp", el->name, 4)) {
 		el->si_mult = 1e-3;
-	else if (!strncmp("humidity", el->name, 8))
+		el->hyst = 0.5;
+	} else if (!strncmp("humidity", el->name, 8)) {
 		el->si_mult = 1e-2;
-	else
+		el->hyst = 1e-2;
+	} else {
 		el->si_mult = 1;
+		el->hyst = 0;
+	}
+	/* invalidate the cache */
+	el->oldvalue = NAN;
 }
 
 static void pubinitial(struct item *it)

@@ -32,6 +32,7 @@ mqtt1wtemp: common.o lib/libt.o
 
 mqttapa102led: common.o lib/libt.o
 
+mqttiio: LDLIBS+= -lm
 mqttiio: common.o lib/libt.o lib/libe.o
 
 mqttimport: common.o

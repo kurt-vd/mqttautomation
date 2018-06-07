@@ -438,6 +438,28 @@ payload_ready:
 		fflush(stdout);
 }
 
+static struct iiodev *find_iiodev(const char *devname);
+static void pubinitial(struct item *it)
+{
+	struct iiodev *dev;
+	struct iioel *el;
+
+	dev = find_iiodev(it->device);
+	if (!dev)
+		return;
+	for (el = dev->els; el < dev->els+dev->nels; ++el) {
+		if (!strcmp(el->name, it->element)) {
+			if (isnan(it->hyst))
+				it->hyst = el->hyst;
+			if (isnan(el->oldvalue))
+				/* don't publish yet */
+			it->oldvalue = el->oldvalue;
+			pubitem(it, mydtostr_align(el->oldvalue, it->hyst));
+			return;
+		}
+	}
+}
+
 static struct iiodev *find_iiodev(const char *devname)
 {
 	struct iiodev *iio;
@@ -542,11 +564,6 @@ parse_scale:
 	}
 	/* invalidate the cache */
 	el->oldvalue = NAN;
-}
-
-static void pubinitial(struct item *it)
-{
-	/* TODO: push value from cache */
 }
 
 static void scan_iio(int destroy)

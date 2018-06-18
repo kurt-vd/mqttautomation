@@ -573,7 +573,7 @@ static void scan_iio(int destroy)
 	struct iiodev *dev;
 	struct iioel *el;
 	static char filename[2048];
-	static char hname[1024];
+	char *devname, *humanname;
 
 	/* clean dirty */
 	for (dev = iiodevs; dev; dev = dev->next)
@@ -590,21 +590,19 @@ static void scan_iio(int destroy)
 		}
 		if (destroy)
 			continue;
-		mylog(LOG_INFO, "open %s", devs.gl_pathv[j]);
-		dev = malloc(sizeof(*dev));
-		if (!dev)
-			mylog(LOG_ERR, "malloc iiodev: %s", ESTR(errno));
-		memset(dev, 0, sizeof(*dev));
-		dev->dirty = 2;
-		dev->name = strdup(devs.gl_pathv[j]+5);
+		mylog(LOG_INFO, "probe %s", devs.gl_pathv[j]);
+		/* device name */
+		devname = devs.gl_pathv[j]+5;
 		/* find human name */
-		sprintf(filename, "/sys/bus/iio/devices/%s/name", dev->name);
+		sprintf(filename, "/sys/bus/iio/devices/%s/name", devname);
 		fd = ret = open(filename, O_RDONLY);
 		if (fd < 0 && errno != ENOENT)
-			dev->hname = strdup(dev->name);
+			humanname = devname;
 		else if (fd < 0)
 			mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
 		else {
+			static char hname[128];
+
 			ret = read(fd, hname, sizeof(hname)-1);
 			if (ret < 0)
 				mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
@@ -612,14 +610,23 @@ static void scan_iio(int destroy)
 			hname[ret] = 0;
 			if (ret && hname[ret-1] == '\n')
 				hname[ret-1] = 0;
-			dev->hname = strdup(hname);
+			humanname = hname;
 		}
+
+		/* create new device */
+		dev = malloc(sizeof(*dev));
+		if (!dev)
+			mylog(LOG_ERR, "malloc iiodev: %s", ESTR(errno));
+		memset(dev, 0, sizeof(*dev));
+		dev->name = strdup(devname);
+		dev->hname = strdup(humanname);
+		dev->dirty = 2;
 
 		/* open file */
 		dev->fd = open(devs.gl_pathv[j], O_RDONLY | O_NONBLOCK);
 		libe_add_fd(dev->fd, iiodev_data, dev);
 
-		mylog(LOG_INFO, "new device '%s'", devs.gl_pathv[j]);
+		mylog(LOG_INFO, "%s (%s) new device", devname, humanname);
 		/* insert in linked list */
 		if (dev->fd < 0)
 			mylog(LOG_ERR, "open %s: %s", devs.gl_pathv[j], ESTR(errno));

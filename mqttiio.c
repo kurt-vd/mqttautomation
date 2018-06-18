@@ -613,6 +613,18 @@ static void scan_iio(int destroy)
 			humanname = hname;
 		}
 
+		/* verify if iio device is buffered
+		 * I only handle buffered iio devices ...
+		 * non-buffered devices can be handled like hwmon devices
+		 */
+		sprintf(filename, "/sys/bus/iio/devices/%s/buffer/enable", devname);
+		if (access(filename, F_OK) < 0) {
+			if (errno != ENOENT && errno != ENOTDIR)
+				mylog(LOG_ERR, "access %s failed: %s", filename, ESTR(errno));
+			mylog(LOG_INFO, "%s (%s) is not buffered, skipping", devname, humanname);
+			continue;
+		}
+
 		/* create new device */
 		dev = malloc(sizeof(*dev));
 		if (!dev)

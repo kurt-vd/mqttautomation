@@ -579,7 +579,10 @@ static void scan_iio(int destroy)
 	for (dev = iiodevs; dev; dev = dev->next)
 		dev->dirty = 0;
 
-	if (glob("/dev/iio:device*", 0, NULL, &devs) != 0)
+	ret = glob("/dev/iio:device*", 0, NULL, &devs);
+	if (ret == GLOB_NOMATCH)
+		goto done_device;
+	if (ret)
 		mylog(LOG_ERR, "glob devices: %s", ESTR(errno));
 	/* open new devices */
 	for (j = 0; j < devs.gl_pathc; ++j) {
@@ -649,6 +652,7 @@ static void scan_iio(int destroy)
 		iiodevs = dev;
 	}
 	globfree(&devs);
+done_device: ;
 
 	/* close obsolete devices */
 	struct iiodev *next;
@@ -682,7 +686,10 @@ static void scan_iio(int destroy)
 	static const char dir[] = "/sys/bus/iio/devices/";
 	char *elname;
 
-	if (glob("/sys/bus/iio/devices/iio:device*/scan_elements/in_*_en", 0, NULL, &els) != 0)
+	ret = glob("/sys/bus/iio/devices/iio:device*/scan_elements/in_*_en", 0, NULL, &els);
+	if (ret == GLOB_NOMATCH)
+		goto done_elements;
+	if (ret)
 		mylog(LOG_ERR, "glob scan_elements: %s", ESTR(errno));
 
 	dirlen = strlen(dir);
@@ -736,6 +743,7 @@ static void scan_iio(int destroy)
 			mylog(LOG_ERR, "alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
 	}
 	globfree(&els);
+done_elements: ;
 }
 
 static void mqtt_fd_ready(int fd, void *dat)

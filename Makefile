@@ -6,6 +6,7 @@ PROGS	+= mqttimport
 PROGS	+= mqttled
 PROGS	+= mqttlogic
 PROGS	+= mqttmaclight
+PROGS	+= mqttmotor
 PROGS	+= mqttnow
 PROGS	+= mqttpoort
 PROGS	+= mqttteleruptor
@@ -44,6 +45,8 @@ mqttlogic: LDLIBS+=-lm
 mqttlogic: common.o lib/libt.o rpnlogic.o sunposition.o
 
 mqttmaclight: common.o lib/libt.o
+
+mqttmotor: common.o lib/libt.o
 
 mqttnow: common.o lib/libt.o
 

@@ -69,7 +69,6 @@ static const char *mqtt_host = "localhost";
 static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/ledhw";
 static const char *mqtt_write_suffix = "/set";
-static int mqtt_suffixlen = 6;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 
@@ -427,7 +426,6 @@ int main(int argc, char *argv[])
 		break;
 	case 's':
 		mqtt_suffix = optarg;
-		mqtt_suffixlen = strlen(mqtt_suffix);
 		break;
 	case 'w':
 		mqtt_write_suffix = *optarg ? optarg : NULL;

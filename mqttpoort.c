@@ -741,6 +741,14 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			libt_remove_timeout(on_poort_moved, it);
 		} else
 			free(ctl);
+		/* preset other fields */
+		it->openmaxtime = 0;
+		it->closemaxtime = 0;
+		it->openstarttime = 0;
+		it->closestarttime = 0;
+		it->eoltime = 0;
+		it->idletime = 0;
+		it->flags &= ~FL_NO_CLOSE_STOPPED;
 		/* parse remaining tokens */
 		it->flags = 0;
 		char *tok, *value;

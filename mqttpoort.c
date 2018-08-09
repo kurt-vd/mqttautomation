@@ -477,7 +477,7 @@ static void on_poort_moved(void *dat)
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
 			poort_publish_homekit(it);
-			if (posctrl(it) && !it->ctlval && it->reqval < 0.9)
+			if (posctrl(it) && it->reqval < 0.9)
 				set_ctl(it);
 		} else {
 			libt_add_timeout(0.5, on_poort_moved, it);
@@ -674,9 +674,8 @@ static void setvalue(struct item *it, double newvalue)
 		return;
 	else if (it->reqval > it->currval && it->state == ST_OPENING)
 		return;
-	if (!it->ctlval)
-		/* start modifying poort state */
-		set_ctl(it);
+	/* start modifying poort state */
+	set_ctl(it);
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -813,7 +812,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			poort_publish(it);
 			poort_publish_homekit(it);
 			libt_remove_timeout(on_poort_moved, it);
-			if (posctrl(it) && !it->ctlval && it->reqval > 0.1)
+			if (posctrl(it) && it->reqval > 0.1)
+				/* open the poort now */
 				set_ctl(it);
 		} else if (it->state == ST_CLOSED) {
 			if (msg->retain) {

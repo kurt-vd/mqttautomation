@@ -97,6 +97,9 @@ struct item {
 	/* ctltopic: topic to control the poort */
 	char *ctltopic;
 	char *ctlwrtopic;
+	int ctltype;
+#define PUSHBUTTON	0 /* push 1..0 to start/stop operation */
+#define MOTOR		1 /* push -1, 0 or +1 to a (H-bridge) motor */
 	/* statetopic: topic that reads back the poort */
 	char *statetopic;
 	/* homekittopic: topic to publish homekit state */
@@ -593,13 +596,19 @@ static void set_ctl(struct item *it)
 {
 	int ret;
 
-	if (it->ctlval)
-		return;
-	mylog(LOG_INFO, "poort %s: push bttn", it->topic);
-	ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "1", mqtt_qos, !it->ctlwrtopic);
-	if (ret < 0)
-		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
-	on_ctl_set(it);
+	switch (it->ctltype) {
+	case PUSHBUTTON:
+		if (it->ctlval)
+			return;
+		mylog(LOG_INFO, "poort %s: push bttn", it->topic);
+		ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "1", mqtt_qos, !it->ctlwrtopic);
+		if (ret < 0)
+			mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
+		on_ctl_set(it);
+		break;
+	case MOTOR:
+		break;
+	}
 }
 
 static void on_ctl_set(struct item *it)
@@ -742,6 +751,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		} else
 			free(ctl);
 		/* preset other fields */
+		it->ctltype = 0;
 		it->openmaxtime = 0;
 		it->closemaxtime = 0;
 		it->openstarttime = 0;
@@ -771,6 +781,22 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				it->idletime = strtod(value, NULL);
 			else if (!strcmp(tok, "noclosestop"))
 				it->flags |= FL_NO_CLOSE_STOPPED;
+			else if (!strcmp(tok, "type")) {
+				char *endp;
+
+				it->ctltype = strtoul(value, &endp, 0);
+				if (endp > value)
+					;
+				else if (!strcmp(value, "pushbutton"))
+					it->ctltype = PUSHBUTTON;
+				else if (!strcmp(value, "motor"))
+					it->ctltype = MOTOR;
+				else {
+					mylog(LOG_INFO, "unknow type '%s' for poort %s", value, it->topic);
+					drop_item(it);
+					return;
+				}
+			}
 
 		}
 		if (!isnan(it->reqval))

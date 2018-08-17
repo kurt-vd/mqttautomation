@@ -102,6 +102,8 @@ static const char *const types[] = {
 #define L293D 0
 	"SN754410",
 #define SN754410 1
+	"2pin",
+#define ANY2PIN 2
 	NULL,
 };
 
@@ -327,6 +329,12 @@ static void set_H(struct item *it, const char *newvalue, int republish)
 			set_led(it->topic, it->sysfsdir[2], en) < 0)
 			goto failed;
 		break;
+	case ANY2PIN:
+		a = !idle && newval != -1;
+		b = !idle && newval != 1;
+		if (set_led(it->topic, it->sysfsdir[0], a) < 0 ||
+			set_led(it->topic, it->sysfsdir[1], b) < 0)
+			goto failed;
 	default:
 		break;
 	}

@@ -336,7 +336,7 @@ static void set_H(struct item *it, const char *newvalue, int republish)
 			set_led(it->topic, it->sysfsdir[1], b) < 0)
 			goto failed;
 	default:
-		break;
+		goto failed;
 	}
 
 	if (republish && mqtt_write_suffix) {

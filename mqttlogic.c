@@ -459,9 +459,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	/* run onchange logic */
 	it = get_item(msg->topic, "", 0);
 	if (it) {
-		if (it->onchange)
+		if (!msg->retain && it->onchange)
 			do_onchanged(it);
-
 	}
 
 }

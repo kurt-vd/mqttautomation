@@ -286,7 +286,7 @@ static int set_led(const char *H, const char *sysfsdir, int on)
 
 	if (!strcmp(sysfsdir, "..."))
 		return 0;
-	ret = attr_write(on ? "255" : "0", "%s/value", sysfsdir);
+	ret = attr_write(on ? "255" : "0", "%s/brightness", sysfsdir);
 	if (ret < 0)
 		mylog(LOG_WARNING, "failed to write %i to led %s for H %s",
 				on ? 255 : 0, sysfsdir, H);

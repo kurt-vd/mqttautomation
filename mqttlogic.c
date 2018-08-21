@@ -89,6 +89,10 @@ struct item {
 	char *topic;
 	char *writetopic;
 	char *lastvalue;
+	/* keep track of /set items of which the
+	 * remote handler is not yet ready
+	 */
+	int recvd;
 
 	struct rpn *logic;
 	struct rpn *onchange;
@@ -380,6 +384,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	struct item *it;
 	struct topic *topic;
+	int ret;
 
 	if (!strcmp(msg->topic, "tools/loglevel")) {
 		mysetloglevelstr(msg->payload);
@@ -461,8 +466,23 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	if (it) {
 		if (!msg->retain && it->onchange)
 			do_onchanged(it);
+		if (it->writetopic && it->lastvalue && !it->recvd) {
+			/* This is the first time we recv the main topic
+			 * of which we wrote /set already
+			 * The program handling this topic most probable has missed
+			 * our /set request, so we repeat it here.
+			 */
+			mylog(LOG_NOTICE, "repeat %s>%s", it->writetopic, it->lastvalue);
+			ret = mosquitto_publish(mosq, NULL, it->writetopic, strlen(it->lastvalue), it->lastvalue, mqtt_qos, 0);
+			if (ret < 0) {
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic, mosquitto_strerror(ret));
+				return;
+			}
+		}
+		if (!msg->retain)
+			/* remote end is present */
+			it->recvd = 1;
 	}
-
 }
 
 int main(int argc, char *argv[])

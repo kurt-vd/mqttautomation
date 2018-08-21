@@ -434,7 +434,7 @@ static int rpn_do_autoreset(struct stack *st, struct rpn *me)
 	} else if (!inval && (me->cookie & 2)) {
 		/* falling edge, cancel reset */
 		libt_remove_timeout(on_delay, me);
-		me->cookie &= ~2;
+		me->cookie &= ~(2+1);
 	}
 
 	/* write output to stack */

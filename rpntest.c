@@ -53,8 +53,6 @@ int main(int argc, char *argv[])
 {
 	struct rpn *rpn = NULL;
 
-	myopenlog("rpntest", 0, LOG_LOCAL2);
-	myloglevel(LOG_INFO);
 	setlocale(LC_TIME, "");
 
 	for (++argv; *argv; ++argv) {

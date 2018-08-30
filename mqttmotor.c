@@ -335,6 +335,7 @@ static void set_H(struct item *it, const char *newvalue, int republish)
 		if (set_led(it->topic, it->sysfsdir[0], a) < 0 ||
 			set_led(it->topic, it->sysfsdir[1], b) < 0)
 			goto failed;
+		break;
 	default:
 		goto failed;
 	}

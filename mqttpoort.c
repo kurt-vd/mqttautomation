@@ -112,7 +112,7 @@ struct item {
 	/* # seconds initial delay */
 	double openstarttime, closestarttime;
 	/* # seconds margin at eol */
-	double eoltime;;
+	double eoltime;
 	/* requested value
 	 * When NAN, the logic will not try to reach the target position
 	 */

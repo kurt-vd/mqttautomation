@@ -295,17 +295,16 @@ static int set_led(const char *H, const char *sysfsdir, int on)
 
 static void set_H(struct item *it, const char *newvalue, int republish)
 {
-	int ret, newval, idle;
+	int ret, brake;
 	char *endp;
 	int en, a, b;
+	double newval;
 
-	idle = !newvalue || !*newvalue;
-	newval = strtol(newvalue ?: "", &endp, 0);
-	if (!idle && endp == newvalue) {
-		if (!strcasecmp(newvalue, "brake"))
-			newval = 0;
-		else if (!strcasecmp(newvalue, "stop"))
-			newval = 0;
+	newval = strtod(newvalue ?: "", &endp);
+	brake = 0;
+	if (endp == newvalue) {
+		if (!strncasecmp(newvalue, "b", 1))
+			brake = 1;
 		else if (!strcasecmp(newvalue, "left"))
 			newval = -1;
 		else if (!strcasecmp(newvalue, "right"))
@@ -314,24 +313,31 @@ static void set_H(struct item *it, const char *newvalue, int republish)
 			newval = -1;
 		else if (!strcasecmp(newvalue, "cw"))
 			newval = 1;
-		else if (!strcasecmp(newvalue, "idle"))
-			idle = 1;
 	}
 
 	switch (it->type) {
 	case L293D:
 	case SN754410:
-		en = !idle;
-		a = !idle && newval >= 0;
-		b = !idle && newval <= 0;
+		a = brake || newval > 0;
+		b = brake || newval < 0;
+		en = a || b;
 		if (set_led(it->topic, it->sysfsdir[0], a) < 0 ||
 			set_led(it->topic, it->sysfsdir[1], b) < 0 ||
 			set_led(it->topic, it->sysfsdir[2], en) < 0)
 			goto failed;
 		break;
 	case ANY2PIN:
-		a = !idle && newval != -1;
-		b = !idle && newval != 1;
+		a = brake || newval > 0;
+		b = brake || newval < 0;
+#if 0
+		if (set_led(it->topic, it->sysfsdir[0], 0) < 0 ||
+			set_led(it->topic, it->sysfsdir[1], 0) < 0)
+			goto failed;
+		static struct timespec delay = { .tv_sec = 0, .tv_nsec = 10*1000, };
+		if (nanosleep(&delay, NULL) < 0)
+			mylog(LOG_WARNING, "nanosleep: %s", ESTR(errno));
+#endif
+		mylog(LOG_INFO, "%s: write %i,%i for %s", it->topic, a, b, newvalue);
 		if (set_led(it->topic, it->sysfsdir[0], a) < 0 ||
 			set_led(it->topic, it->sysfsdir[1], b) < 0)
 			goto failed;

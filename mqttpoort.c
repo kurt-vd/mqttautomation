@@ -123,6 +123,7 @@ struct item {
 	/* the value of the ctr line, with potential feedback */
 	int ctlval;
 	int currctlval;
+	int mustwait;
 	/* value of the state line */
 	int stateval;
 	/* # retries passed */
@@ -276,6 +277,7 @@ static void on_poort_moved(void *dat);
 static void idle_ctl(void *dat);
 static void set_ctl(struct item *it);
 static void reset_ctl(void *dat);
+static void on_ctl_set_timeout(void *dat);
 
 static void drop_item(struct item *it)
 {
@@ -310,6 +312,7 @@ static void drop_item(struct item *it)
 	libt_remove_timeout(reset_ctl, it);
 	libt_remove_timeout(idle_ctl, it);
 	libt_remove_timeout(on_poort_moved, it);
+	libt_remove_timeout(on_ctl_set_timeout, it);
 }
 
 static void poort_publish(struct item *it)
@@ -527,12 +530,7 @@ static void idle_ctl(void *dat)
 	struct item *it = dat;
 
 	/* return to idle */
-	it->ctlval = 0;
-	if (it->ctlwrtopic && it->currctlval == 1) {
-		/* poort control is not working */
-		mylog(LOG_WARNING, "poort control %s does not respond", it->topic);
-		return;
-	}
+	it->mustwait = 0;
 	mylog(LOG_INFO, "poort %s: idle bttn", it->topic);
 	/* TODO: decide new action */
 	switch (it->state) {
@@ -577,18 +575,17 @@ static void reset_ctl(void *dat)
 	struct item *it = dat;
 	int ret;
 
-	if (it->ctlwrtopic && it->currctlval == 0) {
-		/* poort control is not working */
-		mylog(LOG_WARNING, "poort control %s does not respond", it->topic);
-		it->ctlval = 0;
-		return;
-	}
 	ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "0", mqtt_qos, !it->ctlwrtopic);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
-	it->ctlval = 2;
-	libt_add_timeout(it->idletime, idle_ctl, it);
+	it->ctlval = 0;
+	it->mustwait = 1;
 	mylog(LOG_INFO, "poort %s: pushed bttn", it->topic);
+
+	if (it->ctlwrtopic)
+		libt_add_timeout(0.25, on_ctl_set_timeout, it);
+	else
+		libt_add_timeout(it->idletime, idle_ctl, it);
 }
 
 static void on_ctl_set(struct item *it);
@@ -604,11 +601,24 @@ static void set_ctl(struct item *it)
 		ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "1", mqtt_qos, !it->ctlwrtopic);
 		if (ret < 0)
 			mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
-		on_ctl_set(it);
+		it->ctlval = 1;
 		break;
 	case MOTOR:
 		break;
 	}
+	if (!it->ctlwrtopic)
+		/* don't wait feedback */
+		on_ctl_set(it);
+	else
+		libt_add_timeout(0.25, on_ctl_set_timeout, it);
+}
+
+static void on_ctl_set_timeout(void *dat)
+{
+	struct item *it = dat;
+
+	mylog(LOG_WARNING, "poort control %s does not respond", it->topic);
+	it->ctlval = it->currctlval;
 }
 
 static void on_ctl_set(struct item *it)
@@ -744,10 +754,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->ctltopic, mosquitto_strerror(ret));
 			}
 			it->ctlval = 0;
+			it->mustwait = 0;
 			it->nretry = 0;
 			libt_remove_timeout(reset_ctl, it);
 			libt_remove_timeout(idle_ctl, it);
 			libt_remove_timeout(on_poort_moved, it);
+			libt_remove_timeout(on_ctl_set_timeout, it);
 		} else
 			free(ctl);
 		/* preset other fields */
@@ -863,24 +875,24 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				poort_publish_homekit(it);
 				it->currvaltime = libt_now();
 				libt_add_timeout(0.5, on_poort_moved, it);
+			} else {
+				mylog(LOG_WARNING, "poort %s opened unexpectedly", it->topic);
 			}
 		}
 
 	} else if ((it = get_item_by_ctl(msg->topic)) != NULL) {
-		int oldval = it->currctlval;
-
-		it->currctlval = strtol(msg->payload ?: "-1", NULL, 0);
-		if (msg->retain) {
-			if (!it->ctlwrtopic)
-				it->ctlval = it->currctlval;
-			return;
+		it->currctlval = strtol(msg->payload ?: "0", NULL, 0);
+		if (it->currctlval != it->ctlval) {
+			/* unexpected edge */
+			if (!msg->retain)
+				mylog(LOG_INFO, "poort %s: direct controlled", it->topic);
+			if (it->currctlval || it->ctltype != PUSHBUTTON)
+				/* disable position control */
+				it->reqval = NAN;
+			it->ctlval = it->currctlval;
 		}
-		if (it->currctlval && !oldval && !it->ctlval) {
-			/* unexpected rising edge */
-			mylog(LOG_INFO, "poort %s: direct controlled", it->topic);
-			it->reqval = NAN;
-			on_ctl_set(it);
-		}
+		/* call on_ctl_set, also on expected change */
+		on_ctl_set(it);
 	}
 }
 

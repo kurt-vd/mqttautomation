@@ -139,7 +139,6 @@ struct item {
 		#define ST_OPENING	7
 		#define ST_CMARGIN	8
 		#define ST_OMARGIN	9
-#define is_moving(state)	((state) >= ST_CSTART)
 	int flags;
 		/* special behaviour: ctrl during close will open */
 		#define FL_NO_CLOSE_STOPPED	0x01
@@ -159,6 +158,15 @@ static const char *const states[] = {
 	[ST_OPENING] = "opening",
 	[ST_CMARGIN] = "closing-eol",
 	[ST_OMARGIN] = "opening-eol",
+};
+
+static const int statedirs[] = {
+	[ST_CSTART] = -1,
+	[ST_OSTART] = 1,
+	[ST_CLOSING] = -1,
+	[ST_OPENING] = 1,
+	[ST_CMARGIN] = -1,
+	[ST_OMARGIN] = 1,
 };
 
 struct item *items;
@@ -239,7 +247,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	it = malloc(sizeof(*it));
 	memset(it, 0, sizeof(*it));
 	it->reqval = it->currval = NAN;
-	it->currctlval = -1; /* mark invalid */
+	it->currctlval = -10; /* mark invalid */
 	it->topic = strndup(topic, len);
 	it->topiclen = len;
 	it->closemaxtime = it->openmaxtime = it->openstarttime = it->closestarttime = it->eoltime = 0;
@@ -275,7 +283,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 
 static void on_poort_moved(void *dat);
 static void idle_ctl(void *dat);
-static void set_ctl(struct item *it);
+static void set_ctl(struct item *it, int dir);
 static void reset_ctl(void *dat);
 static void on_ctl_set_timeout(void *dat);
 
@@ -334,14 +342,6 @@ static void poort_publish(struct item *it)
 
 static void poort_publish_dir(struct item *it)
 {
-	static const int dirs[10] = {
-		[ST_CSTART] = -1,
-		[ST_OSTART] = 1,
-		[ST_CLOSING] = -1,
-		[ST_OPENING] = 1,
-		[ST_CMARGIN] = -1,
-		[ST_OMARGIN] = 1,
-	};
 	int ret;
 	char buf[16];
 
@@ -351,9 +351,9 @@ static void poort_publish_dir(struct item *it)
 		"opening",
 	};
 
-	it->currdir = dirs[it->state];
+	it->currdir = statedirs[it->state];
 	mylog(LOG_INFO, "poort %s: %s, %s", it->topic, dirstrs[it->currdir+1], mydtostr(it->currval));
-	sprintf(buf, "%i", dirs[it->state]);
+	sprintf(buf, "%i", statedirs[it->state]);
 	ret = mosquitto_publish(mosq, NULL, it->dirtopic, strlen(buf), buf, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->dirtopic, mosquitto_strerror(ret));
@@ -393,6 +393,18 @@ static double travel_time_needed(struct item *it)
 		return (it->reqval - it->currval)*it->openmaxtime;
 }
 
+static int direction_needed(struct item *it)
+{
+	double time = travel_time_needed(it);
+
+	if (time < -0.5)
+		return -1;
+	else if (time > 0.5)
+		return 1;
+	else
+		return 0;
+}
+
 static void poort_moved(struct item *it)
 {
 	double now = libt_now();
@@ -419,26 +431,6 @@ static void poort_moved(struct item *it)
 			it->state = ST_OPENING;
 			poort_publish_homekit(it);
 		}
-		break;
-	case ST_CMARGIN:
-		if (now - it->currvaltime > it->eoltime) {
-			/* less than 10msec away from closed+eoltime */
-			it->state = ST_OPEN;
-			it->currval = 1.1;
-			poort_publish(it);
-			poort_publish_homekit(it);
-
-			if (posctrl(it)) {
-				if (++it->nretry > 3) {
-					mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
-					return;
-				}
-				mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
-				/* retry */
-				set_ctl(it);
-			}
-		} else
-			poort_publish(it);
 		break;
 	case ST_CLOSING:
 		it->currvaltime = now;
@@ -473,9 +465,51 @@ static void on_poort_moved(void *dat)
 	/* find next probe */
 	switch (it->state) {
 	case ST_CMARGIN:
+		delay = it->currvaltime + it->eoltime - libt_now();
+		if (delay > 0.01)
+			/* postpone */
+			libt_add_timeout(delay, on_poort_moved, it);
+		else switch (it->ctltype) {
+		case PUSHBUTTON:
+			/* return to open */
+			it->state = ST_OPEN;
+			it->currval = 1.1;
+			poort_publish(it);
+			poort_publish_homekit(it);
+
+			if (posctrl(it)) {
+				if (++it->nretry > 3)
+					mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
+				else {
+					mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
+					/* retry */
+					set_ctl(it, direction_needed(it));
+				}
+			}
+			break;
+		case MOTOR:
+			if (it->stateval) {
+				/* end-of-course reached, stop now */
+				it->state = ST_CLOSED;
+			} else {
+				mylog(LOG_WARNING, "poort %s: closed not seen", it->topic);
+				it->state = ST_CSTOPPED;
+				it->currval = 1.1;
+				poort_publish(it);
+			}
+			set_ctl(it, 0);
+			poort_publish_dir(it);
+			poort_publish_homekit(it);
+			break;
+		}
+		break;
 	case ST_OMARGIN:
 		delay = it->currvaltime + it->eoltime - libt_now();
-		if (delay < 0.01 && it->state == ST_OMARGIN) {
+		if (delay > 0.01)
+			/* postpone */
+			libt_add_timeout(delay, on_poort_moved, it);
+		else switch (it->ctltype) {
+		case PUSHBUTTON:
 			/* end-of-course reached
 			 * set state to opened if opening,
 			 * closed state should be detected by a sensor
@@ -484,9 +518,15 @@ static void on_poort_moved(void *dat)
 			poort_publish_dir(it);
 			poort_publish_homekit(it);
 			if (posctrl(it) && it->reqval < 0.9)
-				set_ctl(it);
-		} else {
-			libt_add_timeout(0.5, on_poort_moved, it);
+				set_ctl(it, direction_needed(it));
+			break;
+		case MOTOR:
+			/* end-of-course reached, stop now */
+			set_ctl(it, 0);
+			it->state = ST_OPEN;
+			poort_publish_dir(it);
+			poort_publish_homekit(it);
+			break;
 		}
 		break;
 	case ST_CSTART:
@@ -501,7 +541,7 @@ static void on_poort_moved(void *dat)
 	case ST_OPENING:
 		delay = 0.5;
 
-		if (it->ctlval || !posctrl(it))
+		if (it->ctlval || it->mustwait || !posctrl(it))
 			; /* don't make a smaller delay */
 		else if (it->state == ST_CLOSING)
 			delay = -travel_time_needed(it);
@@ -513,7 +553,7 @@ static void on_poort_moved(void *dat)
 		else if (delay < 0.05) {
 			if (it->reqval > 0.1 && it->reqval < 0.9) {
 				/* stop the poort! */
-				set_ctl(it);
+				set_ctl(it, 0);
 				break;
 			}
 			delay = 0.05;
@@ -538,8 +578,8 @@ static void idle_ctl(void *dat)
 	case ST_OSTOPPED:
 		/* measure difference in traveltime */
 		if (posctrl(it) && fabs(travel_time_needed(it)) > (0.5+it->idletime))
-			/* start moving if we need have enough time to stop again */
-			set_ctl(it);
+			/* start moving if we have enough time to stop again */
+			set_ctl(it, direction_needed(it));
 		break;
 	case ST_OSTART:
 	case ST_OPENING:
@@ -550,12 +590,12 @@ static void idle_ctl(void *dat)
 			poort_publish_homekit(it);
 			if (posctrl(it))
 				/* retry opening */
-				set_ctl(it);
+				set_ctl(it, 1);
 		}
 		/* TODO: when is this triggered? */
 		if (posctrl(it) && travel_time_needed(it) < -0.5)
 			/* trigger again */
-			set_ctl(it);
+			set_ctl(it, -1);
 		break;
 
 	case ST_CSTART:
@@ -564,7 +604,7 @@ static void idle_ctl(void *dat)
 	case ST_CLOSED:
 		if (posctrl(it) && travel_time_needed(it) > 0.5)
 			/* trigger again */
-			set_ctl(it);
+			set_ctl(it, 1);
 		break;
 	}
 
@@ -589,13 +629,14 @@ static void reset_ctl(void *dat)
 }
 
 static void on_ctl_set(struct item *it);
-static void set_ctl(struct item *it)
+static void set_ctl(struct item *it, int dir)
 {
 	int ret;
+	char msg[8];
 
 	switch (it->ctltype) {
 	case PUSHBUTTON:
-		if (it->ctlval)
+		if (it->ctlval || it->mustwait)
 			return;
 		mylog(LOG_INFO, "poort %s: push bttn", it->topic);
 		ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, 1, "1", mqtt_qos, !it->ctlwrtopic);
@@ -604,7 +645,15 @@ static void set_ctl(struct item *it)
 		it->ctlval = 1;
 		break;
 	case MOTOR:
+		sprintf(msg, "%i", dir);
+		mylog(LOG_INFO, "poort %s: set motor '%s'", it->topic, msg);
+		ret = mosquitto_publish(mosq, NULL, it->ctlwrtopic ?: it->ctltopic, strlen(msg), msg, mqtt_qos, !it->ctlwrtopic);
+		if (ret < 0)
+			mylog(LOG_ERR, "mosquitto_publish %s: %s", it->ctlwrtopic ?: it->ctltopic, mosquitto_strerror(ret));
+		it->ctlval = dir;
 		break;
+	default:
+		return;
 	}
 	if (!it->ctlwrtopic)
 		/* don't wait feedback */
@@ -623,28 +672,68 @@ static void on_ctl_set_timeout(void *dat)
 
 static void on_ctl_set(struct item *it)
 {
-	it->ctlval = 1;
-	libt_add_timeout(0.5, reset_ctl, it);
+	int newstate;
 
-	static const int newstates[] = {
-		[ST_OPEN] = ST_CSTART,
-		[ST_OSTOPPED] = ST_CSTART,
-		[ST_OPENING] = ST_OSTOPPED,
-		[ST_OSTART] = ST_OSTOPPED,
-		[ST_CLOSED] = ST_OSTART,
-		[ST_CSTOPPED] = ST_OSTART,
-		[ST_CLOSING] = ST_CSTOPPED, /* may be ST_OSTART */
-		[ST_CSTART] = ST_CSTOPPED,
-		/* it's unclear what to do in the margin */
-		[ST_CMARGIN] = ST_CSTOPPED,
-		[ST_OMARGIN] = ST_OSTOPPED,
-	};
-	int newstate = newstates[it->state];
+	libt_remove_timeout(on_ctl_set_timeout, it);
+	switch (it->ctltype) {
+	case PUSHBUTTON:
+		if (!it->ctlval) {
+			libt_add_timeout(it->idletime, idle_ctl, it);
+			return;
+		}
+		/* only change state on set value */
+		libt_add_timeout(0.5, reset_ctl, it);
 
-	if (it->flags & FL_NO_CLOSE_STOPPED) {
-		/* special handling: btn pushed during close opens the port */
-		if (newstate == ST_CSTOPPED)
+		static const int newstates[] = {
+			[ST_OPEN] = ST_CSTART,
+			[ST_OSTOPPED] = ST_CSTART,
+			[ST_OPENING] = ST_OSTOPPED,
+			[ST_OSTART] = ST_OSTOPPED,
+			[ST_CLOSED] = ST_OSTART,
+			[ST_CSTOPPED] = ST_OSTART,
+			[ST_CLOSING] = ST_CSTOPPED, /* may be ST_OSTART */
+			[ST_CSTART] = ST_CSTOPPED,
+			/* it's unclear what to do in the margin */
+			[ST_CMARGIN] = ST_CSTOPPED,
+			[ST_OMARGIN] = ST_OSTOPPED,
+		};
+		newstate = newstates[it->state];
+
+		if (it->flags & FL_NO_CLOSE_STOPPED) {
+			/* special handling: btn pushed during close opens the port */
+			if (newstate == ST_CSTOPPED)
+				newstate = ST_OSTART;
+		}
+		break;
+	case MOTOR:
+		if (it->currdir == it->ctlval)
+			/* nothing new */
+			return;
+		if (it->ctlval < 0)
+			newstate = ST_CSTART;
+		else if (it->ctlval > 0)
 			newstate = ST_OSTART;
+		else switch (it->state) {
+		case ST_OSTART:
+		case ST_OPENING:
+			newstate = ST_OSTOPPED;
+			break;
+		case ST_CSTART:
+		case ST_CLOSING:
+			newstate = ST_CSTOPPED;
+			break;
+		case ST_OMARGIN:
+			newstate = ST_OPEN;
+			break;
+		case ST_CMARGIN:
+			newstate = ST_CLOSED;
+			break;
+		default:
+			/* no change */
+			newstate = it->state;
+			break;
+		}
+		break;
 	}
 
 	/* stop counting movement */
@@ -663,10 +752,12 @@ static void on_ctl_set(struct item *it)
 
 static void stop(struct item *it)
 {
-	if (!is_moving(it->state))
+	if (!statedirs[it->state])
 		return;
 	it->nretry = 0;
-	set_ctl(it);
+	/* disable position control */
+	it->reqval = NAN;
+	set_ctl(it, 0);
 }
 
 static void setvalue(struct item *it, double newvalue)
@@ -689,12 +780,12 @@ static void setvalue(struct item *it, double newvalue)
 		/* don't disturb near the end of course */
 		/* todo: disturb when closing */
 		return;
-	if (it->reqval < it->currval && it->state == ST_CLOSING)
+	if (it->reqval < it->currval && statedirs[it->state] < 0)
 		return;
-	else if (it->reqval > it->currval && it->state == ST_OPENING)
+	else if (it->reqval > it->currval && statedirs[it->state] > 0)
 		return;
 	/* start modifying poort state */
-	set_ctl(it);
+	set_ctl(it, direction_needed(it));
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -853,20 +944,40 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
 			}
 			it->currval = 0;
-			it->state = ST_CLOSED;
-			poort_publish_dir(it);
 			poort_publish(it);
-			poort_publish_homekit(it);
 			libt_remove_timeout(on_poort_moved, it);
-			if (posctrl(it) && it->reqval > 0.1)
-				/* open the poort now */
-				set_ctl(it);
+			switch (it->ctltype) {
+			case PUSHBUTTON:
+				it->state = ST_CLOSED;
+				poort_publish_dir(it);
+				poort_publish_homekit(it);
+				if (posctrl(it) && it->reqval > 0.1)
+					/* open the poort now */
+					set_ctl(it, direction_needed(it));
+				break;
+			case MOTOR:
+				if (msg->retain) {
+					it->currval = 0;
+					it->state = ST_CLOSED;
+					libt_remove_timeout(on_poort_moved, it);
+				} else {
+					it->currval = 0;
+					it->state = ST_CMARGIN;
+					it->currvaltime = libt_now();
+					libt_add_timeout(it->eoltime, on_poort_moved, it);
+				}
+				poort_publish(it);
+				poort_publish_dir(it);
+				poort_publish_homekit(it);
+				break;
+			}
+
 		} else if (it->state == ST_CLOSED) {
 			if (msg->retain) {
 				mylog(LOG_WARNING, "poort %s is not closed", it->topic);
 				it->state = ST_OSTOPPED;
 				poort_publish_homekit(it);
-			} else {
+			} else if (it->ctltype == PUSHBUTTON) {
 				mylog(LOG_WARNING, "poort %s opened unexpectedly", it->topic);
 				/* change to direction ctl */
 				it->reqval = NAN;

@@ -541,7 +541,7 @@ static void on_poort_moved(void *dat)
 	case ST_OPENING:
 		delay = 0.5;
 
-		if (it->ctlval || it->mustwait || !posctrl(it))
+		if ((it->ctltype == PUSHBUTTON && it->ctlval) || it->mustwait || !posctrl(it))
 			; /* don't make a smaller delay */
 		else if (it->state == ST_CLOSING)
 			delay = -travel_time_needed(it);

@@ -75,15 +75,37 @@ int mysetloglevelstr(char *str)
 double mystrtod(const char *str, char **endp)
 {
 	char *localendp;
-	double value;
+	const char *strpos;
+	double value, part;
 
 	if (!endp)
 		endp = &localendp;
-	value = strtod(str ?: "nan", endp);
-	if (**endp && strchr(":h'", **endp))
-		value += strtod((*endp)+1, endp)/60;
-	if (**endp && strchr(":m\"", **endp))
-		value += strtod((*endp)+1, endp)/3600;
+	if (!str)
+		return NAN;
+	for (value = 0, strpos = str; *strpos;) {
+		part = strtod(strpos, endp);
+		if (*endp <= strpos)
+			goto done;
+		switch (**endp) {
+		case 'w':
+			part *= 7;
+		case 'd':
+			part *= 24;
+		case 'h':
+			part *= 60;
+		case 'm':
+			part *= 60;
+		case 's':
+			break;
+		case 0:
+			break;
+		default:
+			goto done;
+		}
+		value += part;
+		strpos = *endp+1;
+	}
+done:
 	return (*endp == str) ? NAN : value;
 }
 const char *mydtostr(double d)

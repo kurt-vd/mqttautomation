@@ -34,6 +34,8 @@ static void rpn_free(struct rpn *rpn)
 		free(rpn->topic);
 	if (rpn->strvalue)
 		free(rpn->strvalue);
+	if (rpn->timeout)
+		libt_remove_timeout(rpn->timeout, rpn);
 	free(rpn);
 }
 
@@ -352,6 +354,7 @@ static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 	if (!inval && (me->cookie & 2)) {
 		/* falling edge: schedule timeout */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		me->timeout = on_delay;
 		/* clear cache */
 		me->cookie &= ~2;
 	} else if (inval && !(me->cookie & 2)) {
@@ -378,6 +381,7 @@ static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 	if (inval && !(me->cookie & 2)) {
 		/* rising edge: schedule timeout */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		me->timeout = on_delay;
 		/* set cache */
 		me->cookie |= 2;
 	} else if (!inval && (me->cookie & 2)) {
@@ -403,10 +407,11 @@ static int rpn_do_debounce(struct stack *st, struct rpn *me)
 
 	if (inval != !!(me->cookie & 2)) {
 		/* input changed from last value */
-		if (inval != (me->cookie & 1))
+		if (inval != (me->cookie & 1)) {
 			/* schedule timeout if different */
 			libt_add_timeout(st->v[st->n-1], on_delay, me);
-		else
+			me->timeout = on_delay;
+		} else
 			/* value equals output, cancel timer */
 			libt_remove_timeout(on_delay, me);
 		me->cookie = (me->cookie & ~2) | (inval ? 2 : 0);
@@ -430,6 +435,7 @@ static int rpn_do_autoreset(struct stack *st, struct rpn *me)
 	if (inval && !(me->cookie & 2)) {
 		/* rising edge, schedule reset */
 		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		me->timeout = on_delay;
 		me->cookie |= 2+1;
 	} else if (!inval && (me->cookie & 2)) {
 		/* falling edge, cancel reset */
@@ -512,6 +518,7 @@ static int rpn_do_wakeup(struct stack *st, struct rpn *me)
 
 	next = t - t % align + align;
 	libt_add_timeout(next - t, rpn_run_again, me);
+	me->timeout = rpn_run_again;
 
 	st->n -= 1;
 	return 0;

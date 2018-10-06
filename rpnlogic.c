@@ -154,6 +154,50 @@ static int rpn_do_inrange(struct stack *st, struct rpn *me)
 	return 1;
 }
 
+static int rpn_do_hyst2(struct stack *st, struct rpn *me)
+{
+	if (st->n < 3)
+		/* stack underflow */
+		return -1;
+	double hi, lo;
+
+	if (st->v[st->n-2] < st->v[st->n-1]) {
+		hi = st->v[st->n-1];
+		lo = st->v[st->n-2];
+	} else {
+		lo = st->v[st->n-1];
+		hi = st->v[st->n-2];
+	}
+	/* limit x-3 between x-2 & x-1 */
+	if (st->v[st->n-3] > hi)
+		me->cookie = 1;
+	else if (st->v[st->n-3] < lo)
+		me->cookie = 0;
+	st->v[st->n-3] = me->cookie;
+	st->n -= 2;
+	return 1;
+}
+
+static int rpn_do_hyst1(struct stack *st, struct rpn *me)
+{
+	if (st->n < 3)
+		/* stack underflow */
+		return -1;
+	double test, marg;
+
+	test = st->v[st->n-2];
+	marg = st->v[st->n-1];
+
+	/* limit x-3 between x-2 & x-1 */
+	if (st->v[st->n-3] > test+marg)
+		me->cookie = 1;
+	else if (st->v[st->n-3] < test-marg)
+		me->cookie = 0;
+	st->v[st->n-3] = me->cookie;
+	st->n -= 2;
+	return 1;
+}
+
 /* bitwise */
 static int rpn_do_bitand(struct stack *st, struct rpn *me)
 {
@@ -743,6 +787,9 @@ static struct lookup {
 
 	{ "limit", rpn_do_limit, },
 	{ "inrange", rpn_do_inrange, },
+	{ "hyst1", rpn_do_hyst1, },
+	{ "hyst2", rpn_do_hyst2, },
+	{ "hyst", rpn_do_hyst2, },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

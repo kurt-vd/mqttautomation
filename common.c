@@ -77,32 +77,46 @@ double mystrtod(const char *str, char **endp)
 	char *localendp;
 	const char *strpos;
 	double value, part;
+	unsigned long fact, fact2;
 
 	if (!endp)
 		endp = &localendp;
 	if (!str)
 		return NAN;
-	for (value = 0, strpos = str; *strpos;) {
+
+	for (value = 0, fact2 = 1, strpos = str; *strpos;) {
 		part = strtod(strpos, endp);
 		if (*endp <= strpos)
 			goto done;
 		switch (**endp) {
 		case 'w':
-			part *= 7;
+			fact = 60*60*24*7;
+			fact2 = 60*60*24;
+			break;
 		case 'd':
-			part *= 24;
+			fact = 60*60*24;
+			fact2 = 60*60;
+			break;
 		case 'h':
-			part *= 60;
+			fact = 60*60;
+			fact2 = 60;
+			break;
 		case 'm':
-			part *= 60;
+			fact = 60;
+			fact2 = 1;
+			break;
 		case 's':
+			fact = 1;
+			fact2 = 0;
 			break;
 		case 0:
+			value += part*fact2;
+			goto done;
 			break;
 		default:
 			goto done;
 		}
-		value += part;
+		value += part*fact;
 		strpos = *endp+1;
 	}
 done:

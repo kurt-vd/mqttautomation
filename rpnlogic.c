@@ -575,7 +575,7 @@ static int rpn_do_timeofday(struct stack *st, struct rpn *me)
 
 	time(&t);
 	tm = localtime(&t);
-	rpn_push(st, tm->tm_hour + tm->tm_min/60.0 + tm->tm_sec/3600.0);
+	rpn_push(st, tm->tm_hour*3600 + tm->tm_min*60 + tm->tm_sec);
 	return 0;
 }
 

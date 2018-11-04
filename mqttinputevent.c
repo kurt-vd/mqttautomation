@@ -207,18 +207,34 @@ static void pubinitial(struct item *it)
 	static uint8_t state[KEY_CNT/8+1];
 	static char buf[32];
 
-	/* load valid keys */
-	if (ioctl(infd, EVIOCGBIT(EV_KEY, sizeof(state)), state) < 0)
+	/* load supported events */
+	if (ioctl(infd, EVIOCGBIT(it->evtype, sizeof(state)), state) < 0)
 		mylog(LOG_ERR, "ioctl %s EVIOCGBIT(KEY): %s", inputdev, ESTR(errno));
 	if (!getbit(it->evcode, state)) {
 		/* remove item from this input device */
+		mylog(LOG_WARNING, "device %s has no input %u:%u, removing", inputdev, it->evtype, it->evcode);
 		drop_item(it, 0);
 		return;
 	}
-	/* load current state */
-	if (ioctl(infd, EVIOCGKEY(sizeof(state)), state) < 0)
-		mylog(LOG_ERR, "ioctl %s EVIOCGKEY: %s", inputdev, ESTR(errno));
-	sprintf(buf, "%i", getbit(it->evcode, state));
+
+	/* table with ioctl */
+	static const int ioctls[EV_CNT] = {
+		[EV_KEY] = EVIOCGKEY(sizeof(state)),
+		[EV_SW] = EVIOCGSW(sizeof(state)),
+
+	};
+	switch (it->evtype) {
+	case EV_KEY:
+	case EV_SW:
+		/* load current state */
+		if (ioctl(infd, ioctls[it->evtype], state) < 0)
+			mylog(LOG_ERR, "ioctl %s EVIOCG{KEY,SW}: %s", inputdev, ESTR(errno));
+		sprintf(buf, "%i", getbit(it->evcode, state));
+		break;
+	default:
+		/* return without publishing */
+		return;
+	}
 	pubitem(it, buf);
 }
 
@@ -255,13 +271,16 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		} else if (!strncmp(event, "key:", 4)) {
 			it->evtype = EV_KEY;
 			it->evcode = strtoul(event+4, NULL, 0);
+		} else if (strchr(event, ':')) {
+			it->evtype = strtoul(strtok(event, ":"), NULL, 0);
+			it->evcode = strtoul(strtok(NULL, ":"), NULL, 0);
 		} else if (*event == '#') {
 			it->evtype = EV_KEY;
 			it->evcode = strtoul(event+1, NULL, 0);
 		} else
-			mylog(LOG_WARNING, "unparsed inputevent for %s", it->topic);
-		if (!it->evtype || !it->evcode)
-			mylog(LOG_WARNING, "inputevent for %s is invalid!", it->topic);
+			mylog(LOG_WARNING, "unparsed inputevent for %s '%s'", it->topic, event);
+		if (!it->evtype)
+			mylog(LOG_WARNING, "inputevent for %s is invalid!, %u:%u", it->topic, it->evtype, it->evcode);
 		pubinitial(it);
 	}
 }

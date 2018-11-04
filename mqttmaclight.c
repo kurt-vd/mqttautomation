@@ -225,7 +225,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* find full path for led or brightness */
 		static const char *const sysfs[] = {
 			"/sys/devices/platform/%s/light",
-			"/sys/class/hwmon/%s/light",
+			"/sys/class/hwmon/%s/device/light",
 			"/tmp/%s/light",
 			NULL,
 		};

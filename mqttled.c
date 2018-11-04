@@ -314,8 +314,10 @@ static void setled(struct item *it, const char *newvalue, int republish)
 		/* don't ack the led */
 		return;
 	} else if (endp > newvalue) {
-		if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
-			return;
+		if (!strstr(it->sysfsdir, "/backlight/")) {
+			if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
+				return;
+		}
 		sprintf(buf, "%i", newval);
 		if (attr_write(buf, "%s/brightness", it->sysfsdir) < 0)
 			return;

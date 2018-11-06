@@ -162,6 +162,26 @@ static int rpn_do_inrange(struct stack *st, struct rpn *me)
 	return 1;
 }
 
+static int rpn_do_category(struct stack *st, struct rpn *me)
+{
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+	double value = st->v[st->n-2];
+	double ncat = rpn_toint(st->v[st->n-1]);
+
+	value = rpn_toint(value*ncat);
+
+	if (value < 0)
+		value = 0;
+	else if (value > (ncat-1))
+		value = ncat-1;
+	st->n -= 1;
+	st->v[st->n-1] = value;
+
+	return value;
+}
+
 static int rpn_do_hyst2(struct stack *st, struct rpn *me)
 {
 	if (st->n < 3)
@@ -796,6 +816,7 @@ static struct lookup {
 
 	{ "limit", rpn_do_limit, },
 	{ "inrange", rpn_do_inrange, },
+	{ "category", rpn_do_category, },
 	{ "hyst1", rpn_do_hyst1, },
 	{ "hyst2", rpn_do_hyst2, },
 	{ "hyst", rpn_do_hyst2, },

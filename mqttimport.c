@@ -211,9 +211,11 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		if (!strcmp(msg->topic, it->topic)) {
 			if (it->imported)
 				drop_item(it);
-			else if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: ""))
+			else if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: "")) {
 				send_item(it, "update");
-			else {
+				if (dryrun)
+					mylog(LOG_NOTICE, "was %s", (const char *)msg->payload);
+			} else {
 				mylog(LOG_INFO, "leave %s", it->topic);
 				drop_item(it);
 			}

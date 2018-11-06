@@ -120,6 +120,14 @@ static int rpn_do_pow(struct stack *st, struct rpn *me)
 	st->n -= 1;
 	return 0;
 }
+static int rpn_do_negative(struct stack *st, struct rpn *me)
+{
+	if (st->n < 1)
+		/* stack underflow */
+		return -1;
+	st->v[st->n-1] = -st->v[st->n-1];
+	return 0;
+}
 
 /* utilities */
 static int rpn_do_limit(struct stack *st, struct rpn *me)
@@ -765,6 +773,7 @@ static struct lookup {
 	{ "/", rpn_do_div, },
 	{ "%", rpn_do_mod, },
 	{ "**", rpn_do_pow, },
+	{ "neg", rpn_do_negative, },
 
 	{ "&", rpn_do_bitand, },
 	{ "|", rpn_do_bitor, },

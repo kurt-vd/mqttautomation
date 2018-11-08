@@ -77,6 +77,10 @@ static int mqtt_qos = 1;
 /* state */
 static struct mosquitto *mosq;
 
+struct map {
+	double v;
+	char *s;
+};
 struct item {
 	struct item *next;
 	struct item *prev;
@@ -87,6 +91,9 @@ struct item {
 	long lastvalue;
 	double mul;
 	double samplerate;
+
+	struct map *map;
+	int nmap, mapsize;
 };
 
 struct item *items;
@@ -147,6 +154,31 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	return it;
 }
 
+static void drop_map(struct item *it)
+{
+	int j;
+
+	for (j = 0; j < it->nmap; ++j)
+		free(it->map[j].s);
+	free(it->map);
+	/* clear values */
+	it->map = NULL;
+	it->nmap = it->mapsize = 0;
+}
+
+static void add_map(struct item *it, double v, const char *s)
+{
+	if (it->nmap+1 > it->mapsize) {
+		it->mapsize += 16;
+		it->map = realloc(it->map, it->mapsize*sizeof(*it->map));
+		if (!it->map)
+			mylog(LOG_ERR, "realloc map failed for %s: %s", it->topic, ESTR(errno));
+	}
+	it->map[it->nmap].v = v;
+	it->map[it->nmap].s = strdup(s ?: "");
+	++it->nmap;
+}
+
 static void pub_it(void *dat);
 static void drop_item(struct item *it)
 {
@@ -159,10 +191,28 @@ static void drop_item(struct item *it)
 	mosquitto_publish(mosq, NULL, it->topic, 0, NULL, 0, 1);
 	libt_remove_timeout(pub_it, it);
 	/* free memory */
+	drop_map(it);
 	free(it->topic);
 	if (it->sysfs)
 		free(it->sysfs);
 	free(it);
+}
+
+static void parse_map(struct item *it)
+{
+	char *key, *value;
+
+	for (;;) {
+		key = strtok(NULL, " \t");
+		if (!key)
+			break;
+		value = strchr(key, '=');
+		if (!value)
+			break;
+		/* insert null seperator */
+		*value++ = 0;
+		add_map(it, strtod(value, NULL), key);
+	}
 }
 
 /* read hw */
@@ -170,7 +220,7 @@ static void pub_it(void *dat)
 {
 	struct item *it = dat;
 	static char strvalue[128];
-	int fd, ret;
+	int fd, ret, j;
 	long value;
 
 	fd = open(it->sysfs, O_RDONLY);
@@ -187,9 +237,21 @@ static void pub_it(void *dat)
 	/* null-terminate value */
 	strvalue[ret] = 0;
 
-	value = strtol(strvalue, NULL, 0);
+	if (it->map) {
+		if (ret > 0 && strvalue[ret-1] == '\n')
+			strvalue[--ret] = 0;
+		/* value is not parsed as int, but the index of the enum map */
+		for (j = 0; j < it->nmap; ++j) {
+			if (!strcasecmp(it->map[j].s, strvalue))
+				break;
+		}
+		value = j;
+		mylog(LOG_DEBUG, "%s: got %s, %i", it->topic, strvalue, j);
+	} else
+		value = strtol(strvalue, NULL, 0);
+
 	if (value != it->lastvalue) {
-		const char *str = mydtostr(value * it->mul);
+		const char *str = it->map ? ((value >= it->nmap) ? "" : mydtostr(it->map[value].v)): mydtostr(value * it->mul);
 
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
 		ret = mosquitto_publish(mosq, NULL, it->topic, strlen(str), str, mqtt_qos, 1);
@@ -257,6 +319,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* re-initialize defaults */
 		it->mul = 1e-3;
 		it->samplerate = 1;
+		drop_map(it);
 		/* invalidate cache */
 		it->lastvalue = -1;
 		/* parse path */
@@ -280,10 +343,17 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				it->mul = strtod(value, NULL);
 			else if (!strcmp(key, "samplerate"))
 				it->samplerate = strtod(value, NULL);
+			else if (!strcmp(key, "enum"))
+				parse_map(it);
 			else
 				mylog(LOG_WARNING, "unknown attribute '%s' for %s", key, it->topic);
 		}
 		mylog(LOG_INFO, "new mqttfromsysfs spec for %s: %s", it->topic, it->sysfs);
+		if (it->map) {
+			int j;
+			for (j = 0; j < it->nmap; ++j)
+				mylog(LOG_DEBUG, "	%s=%s", it->map[j].s, mydtostr(it->map[j].v));
+		}
 		pub_it(it);
 	}
 }

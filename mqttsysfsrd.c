@@ -269,7 +269,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 
 		for (;;) {
-			key = strtok(NULL, ",;");
+			key = strtok(NULL, " \t");
 			if (!key)
 				break;
 			value = strchr(key, '=');

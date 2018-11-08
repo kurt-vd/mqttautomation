@@ -97,28 +97,6 @@ static void onsigterm(int signr)
 	sigterm = 1;
 }
 
-/* self-sync */
-static char *myuuid;
-static const char selfsynctopic[] = "tmp/selfsync";
-static void send_self_sync(struct mosquitto *mosq)
-{
-	int ret;
-
-	asprintf(&myuuid, "%i-%li-%i", getpid(), time(NULL), rand());
-
-	ret = mosquitto_subscribe(mosq, NULL, selfsynctopic, mqtt_qos);
-	if (ret)
-		mylog(LOG_ERR, "mosquitto_subscribe %s: %s", selfsynctopic, mosquitto_strerror(ret));
-	ret = mosquitto_publish(mosq, NULL, selfsynctopic, strlen(myuuid), myuuid, mqtt_qos, 0);
-	if (ret < 0)
-		mylog(LOG_ERR, "mosquitto_publish %s: %s", selfsynctopic, mosquitto_strerror(ret));
-}
-static int is_self_sync(const struct mosquitto_message *msg)
-{
-	return !strcmp(msg->topic, selfsynctopic) &&
-		!strcmp(myuuid ?: "", msg->payload ?: "");
-}
-
 /* MQTT iface */
 static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const char *str)
 {
@@ -334,7 +312,7 @@ printhelp:
 	}
 	if (line)
 		free(line);
-	send_self_sync(mosq);
+	send_self_sync(mosq, mqtt_qos);
 
 	/* loop */
 	while (!sigterm && items) {

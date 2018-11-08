@@ -18,6 +18,12 @@ extern double mystrtod(const char *str, char **endp);
 /* return absolute path of <path> reletive from <ref> */
 extern char *resolve_relative_path(const char *path, const char *ref);
 
+/* tool to synchronize to MQTT */
+struct mosquitto_message;
+struct mosquitto;
+extern int is_self_sync(const struct mosquitto_message *msg);
+extern void send_self_sync(struct mosquitto *mosq, int qos);
+
 #ifdef __cplusplus
 }
 #endif

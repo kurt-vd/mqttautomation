@@ -9,6 +9,7 @@ PROGS	+= mqttmaclight
 PROGS	+= mqttmotor
 PROGS	+= mqttnow
 PROGS	+= mqttpoort
+PROGS	+= mqttsysfsrd
 PROGS	+= mqttteleruptor
 PROGS	+= rpntest
 PROGS	+= testteleruptor
@@ -52,6 +53,8 @@ mqttnow: common.o lib/libt.o
 
 mqttpoort: LDLIBS+=-lm
 mqttpoort: common.o lib/libt.o
+
+mqttsysfsrd: common.o lib/libt.o
 
 mqttteleruptor: common.o lib/libt.o
 

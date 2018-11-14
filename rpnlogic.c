@@ -440,6 +440,31 @@ static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 	st->n -= 1;
 	return 0;
 }
+static int rpn_do_afterdelay(struct stack *st, struct rpn *me)
+{
+	int inval;
+
+	if (st->n < 2)
+		/* stack underflow */
+		return -1;
+
+	inval = rpn_toint(st->v[st->n-2]);
+
+	if (!inval && (me->cookie & 2)) {
+		/* falling edge: schedule timeout */
+		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		me->timeout = on_delay;
+		/* set output, clear cached input */
+		me->cookie = 1;
+	} else if (inval && !(me->cookie & 2)) {
+		/* set cached input */
+		me->cookie |= 2;
+	}
+	/* write output to stack */
+	st->v[st->n-2] = me->cookie & 1;
+	st->n -= 1;
+	return 0;
+}
 static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 {
 	int inval;
@@ -823,6 +848,7 @@ static struct lookup {
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
+	{ "afterdelay", rpn_do_afterdelay, },
 	{ "debounce", rpn_do_debounce, },
 	{ "autoreset", rpn_do_autoreset, },
 

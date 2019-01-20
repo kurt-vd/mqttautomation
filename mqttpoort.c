@@ -768,6 +768,20 @@ static void setvalue(struct item *it, double newvalue)
 	else if (newvalue > 0.9)
 		newvalue = 1;
 
+	if (isnan(it->currval)) {
+		/* escape from init state, fake an initial position
+		 * opposite to the requested one.
+		 */
+		if (newvalue > 0.9) {
+			it->currval = 0.01;
+			it->state == ST_CSTOPPED;
+			poort_publish(it);
+		} else if (newvalue < 0.1) {
+			it->currval = 1;
+			it->state = ST_OPEN;
+			poort_publish(it);
+		}
+	}
 	it->reqval = newvalue;
 	if (fabs(it->reqval - it->currval) < 0.01)
 		return;

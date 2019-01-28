@@ -774,7 +774,7 @@ static void setvalue(struct item *it, double newvalue)
 		 */
 		if (newvalue > 0.9) {
 			it->currval = 0.01;
-			it->state == ST_CSTOPPED;
+			it->state = ST_CSTOPPED;
 			poort_publish(it);
 		} else if (newvalue < 0.1) {
 			it->currval = 1;

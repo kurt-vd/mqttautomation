@@ -96,6 +96,8 @@ struct item {
 
 	struct rpn *logic;
 	struct rpn *onchange;
+	char *logic_payload;
+	char *onchange_payload;
 };
 
 static struct item *items;
@@ -392,13 +394,19 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* this is a logic set msg */
 		it = get_item(msg->topic, mqtt_suffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it)
+			if (it) {
+				myfree(it->logic_payload);
 				drop_item(it, &it->logic);
+			}
 			return;
 		}
 		if (it->writetopic) {
 			free(it->writetopic);
 			it->writetopic = NULL;
+		}
+		if (!strcmp(it->logic_payload ?: "", msg->payload ?: "")) {
+			mylog(LOG_DEBUG, "identical logic for %s", it->topic);
+			return;
 		}
 		/* remove old logic */
 		rpn_unref(it->logic);
@@ -407,6 +415,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->logic = rpn_parse(msg->payload, it);
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
+		myfree(it->logic_payload);
+		it->logic_payload = strdup(msg->payload);
 		mylog(LOG_INFO, "new logic for %s", it->topic);
 		/* ready, first run */
 		do_logic(it, NULL);
@@ -415,12 +425,18 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* this is a logic set msg */
 		it = get_item(msg->topic, mqtt_setsuffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it)
+			if (it) {
+				myfree(it->logic_payload);
 				drop_item(it, &it->logic);
+			}
 			return;
 		}
 		if (!it->writetopic)
 			asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
+		if (!strcmp(it->logic_payload ?: "", msg->payload ?: "")) {
+			mylog(LOG_DEBUG, "identical logic for %s", it->topic);
+			return;
+		}
 		/* remove old logic */
 		rpn_unref(it->logic);
 		rpn_free_chain(it->logic);
@@ -428,6 +444,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->logic = rpn_parse(msg->payload, it);
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
+		myfree(it->logic_payload);
+		it->logic_payload = strdup(msg->payload);
 		mylog(LOG_INFO, "new setlogic for %s", it->topic);
 		/* ready, first run */
 		do_logic(it, NULL);
@@ -435,8 +453,14 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	} else if (test_suffix(msg->topic, mqtt_onchangesuffix)) {
 		it = get_item(msg->topic, mqtt_onchangesuffix, msg->payloadlen);
 		if (!it || !msg->payloadlen) {
-			if (it)
+			if (it) {
+				myfree(it->onchange_payload);
 				drop_item(it, &it->onchange);
+			}
+			return;
+		}
+		if (!strcmp(it->onchange_payload ?: "", msg->payload ?: "")) {
+			mylog(LOG_DEBUG, "identical onchange for %s", it->topic);
 			return;
 		}
 		/* remove old logic */
@@ -446,6 +470,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->onchange = rpn_parse(msg->payload, it);
 		rpn_resolve_relative(it->onchange, it->topic);
 		rpn_ref(it->onchange);
+		myfree(it->onchange_payload);
+		it->onchange_payload = strdup(msg->payload);
 		mylog(LOG_INFO, "new onchange for %s", it->topic);
 		return;
 	}

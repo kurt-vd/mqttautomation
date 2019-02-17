@@ -860,14 +860,14 @@ static struct lookup {
 	{ "changed", rpn_do_edge, },
 	{ "pushed", rpn_do_rising, },
 
-	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC, },
-	{ "timeofday", rpn_do_timeofday, },
+	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
+	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },
 	{ "dayofweek", rpn_do_dayofweek, },
 	{ "abstime", rpn_do_abstime, },
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
 
-	{ "sun", rpn_do_sun, },
+	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

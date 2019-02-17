@@ -17,6 +17,7 @@
 #include <mosquitto.h>
 
 #include "lib/libt.h"
+#include "lib/libe.h"
 #include "rpnlogic.h"
 #include "common.h"
 
@@ -515,9 +516,46 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	}
 }
 
+static void mqtt_maintenance(void *dat)
+{
+	int ret;
+	struct mosquitto *mosq = dat;
+
+	ret = mosquitto_loop_misc(mosq);
+	if (ret)
+		mylog(LOG_ERR, "mosquitto_loop_misc: %s", mosquitto_strerror(ret));
+	libt_add_timeout(2.3, mqtt_maintenance, dat);
+}
+
+static void recvd_mosq(int fd, void *dat)
+{
+	struct mosquitto *mosq = dat;
+	int evs = libe_fd_evs(fd);
+	int ret;
+
+	if (evs & LIBE_RD) {
+		/* mqtt read ... */
+		ret = mosquitto_loop_read(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_read: %s", mosquitto_strerror(ret));
+	}
+	if (evs & LIBE_WR) {
+		/* flush mqtt write queue _after_ the timers have run */
+		ret = mosquitto_loop_write(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_write: %s", mosquitto_strerror(ret));
+	}
+}
+
+void mosq_update_flags(void)
+{
+	if (mosq)
+		libe_mod_fd(mosquitto_socket(mosq), LIBE_RD | (mosquitto_want_write(mosq) ? LIBE_WR : 0));
+}
+
 int main(int argc, char *argv[])
 {
-	int opt, ret, waittime;
+	int opt, ret;
 	char *str;
 	char mqtt_name[32];
 
@@ -590,14 +628,15 @@ int main(int argc, char *argv[])
 			mylog(LOG_ERR, "mosquitto_subscribe %s: %s", argv[optind], mosquitto_strerror(ret));
 	}
 
+	libt_add_timeout(0, mqtt_maintenance, mosq);
+	libe_add_fd(mosquitto_socket(mosq), recvd_mosq, mosq);
+
 	while (1) {
+		mosq_update_flags();
 		libt_flush();
-		waittime = libt_get_waittime();
-		if (waittime > 1000)
-			waittime = 1000;
-		ret = mosquitto_loop(mosq, waittime, 1);
-		if (ret)
-			mylog(LOG_ERR, "mosquitto_loop: %s", mosquitto_strerror(ret));
+		ret = libe_wait(libt_get_waittime());
+		if (ret >= 0)
+			libe_flush();
 	}
 	return 0;
 }

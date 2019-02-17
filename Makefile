@@ -43,7 +43,8 @@ mqttinputevent: common.o
 mqttled: common.o lib/libt.o
 
 mqttlogic: LDLIBS+=-lm
-mqttlogic: common.o lib/libt.o rpnlogic.o sunposition.o
+mqttlogic: common.o lib/libt.o lib/libe.o \
+	rpnlogic.o sunposition.o
 
 mqttmaclight: common.o lib/libt.o
 

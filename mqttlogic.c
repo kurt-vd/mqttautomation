@@ -95,6 +95,7 @@ struct item {
 	int recvd;
 
 	struct rpn *logic;
+	int logicflags;
 	struct rpn *onchange;
 	char *logic_payload;
 	char *onchange_payload;
@@ -352,7 +353,8 @@ static void do_logic(struct item *it, struct topic *trigger)
 		return;
 	}
 
-	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s", it->writetopic ?: it->topic, it->writetopic ? '>' : '=', result);
+	int loglevel = (!trigger && (it->logicflags & RPNFN_PERIODIC)) ? LOG_INFO : LOG_NOTICE;
+	mylog(loglevel, "mosquitto_publish %s%c%s", it->writetopic ?: it->topic, it->writetopic ? '>' : '=', result);
 	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !it->writetopic);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
@@ -413,6 +415,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		rpn_free_chain(it->logic);
 		/* prepare new info */
 		it->logic = rpn_parse(msg->payload, it);
+		it->logicflags = rpn_collect_flags(it->logic);
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
 		myfree(it->logic_payload);
@@ -442,6 +445,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		rpn_free_chain(it->logic);
 		/* prepare new info */
 		it->logic = rpn_parse(msg->payload, it);
+		it->logicflags = rpn_collect_flags(it->logic);
 		rpn_resolve_relative(it->logic, it->topic);
 		rpn_ref(it->logic);
 		myfree(it->logic_payload);

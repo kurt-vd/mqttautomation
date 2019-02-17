@@ -811,6 +811,7 @@ int rpn_run(struct stack *st, struct rpn *rpn)
 static struct lookup {
 	const char *str;
 	int (*run)(struct stack *, struct rpn *);
+	int flags;
 } const lookups[] = {
 	{ "+", rpn_do_plus, },
 	{ "-", rpn_do_minus, },
@@ -859,7 +860,7 @@ static struct lookup {
 	{ "changed", rpn_do_edge, },
 	{ "pushed", rpn_do_rising, },
 
-	{ "wakeup", rpn_do_wakeup, },
+	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC, },
 	{ "timeofday", rpn_do_timeofday, },
 	{ "dayofweek", rpn_do_dayofweek, },
 	{ "abstime", rpn_do_abstime, },
@@ -983,6 +984,7 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 			}
 		} else if ((lookup = do_lookup(tok)) != NULL) {
 			rpn->run = lookup->run;
+			rpn->flags = lookup->flags;
 
 		} else if ((constant = do_constant(tok)) != NULL) {
 			rpn->run = rpn_do_const;
@@ -1030,4 +1032,13 @@ struct rpn *rpn_parse(const char *cstr, void *dat)
 	rpn_parse_append(cstr, &rpns, dat);
 	rpn_parse_done(rpns);
 	return rpns;
+}
+
+int rpn_collect_flags(struct rpn *rpn)
+{
+	int flags = 0;
+
+	for (; rpn; rpn = rpn->next)
+		flags |= rpn->flags;
+	return flags;
 }

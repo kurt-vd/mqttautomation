@@ -13,6 +13,7 @@ struct stack {
 struct rpn {
 	struct rpn *next;
 	int (*run)(struct stack *st, struct rpn *me);
+	int flags;
 	void *dat;
 	char *topic;
 	double value;
@@ -34,6 +35,9 @@ int rpn_run(struct stack *st, struct rpn *rpn);
 
 void rpn_free_chain(struct rpn *rpn);
 void rpn_rebase(struct rpn *first, struct rpn **newptr);
+
+int rpn_collect_flags(struct rpn *);
+#define RPNFN_PERIODIC	1 /* This will generate output without external events */
 
 /* imported function */
 extern const char *rpn_lookup_env(const char *str, struct rpn *);

@@ -18,6 +18,7 @@
 
 #include "lib/libt.h"
 #include "lib/libe.h"
+#include "lib/libtimechange.h"
 #include "rpnlogic.h"
 #include "common.h"
 
@@ -553,6 +554,23 @@ void mosq_update_flags(void)
 		libe_mod_fd(mosquitto_socket(mosq), LIBE_RD | (mosquitto_want_write(mosq) ? LIBE_WR : 0));
 }
 
+static void timechanged(int fd, void *dat)
+{
+	struct item *it;
+
+	if (libtimechange_iterate(fd) < 0) {
+		if (errno == ECANCELED) {
+			mylog(LOG_NOTICE, "wall-time changed");
+			for (it = items; it; it = it->next) {
+				if (it->logicflags & RPNFN_WALLTIME)
+					do_logic(it, NULL);
+			}
+		}
+	}
+	if (libtimechange_arm(fd) < 0)
+		mylog(LOG_ERR, "timerfd rearm: %s", ESTR(errno));
+}
+
 int main(int argc, char *argv[])
 {
 	int opt, ret;
@@ -631,6 +649,15 @@ int main(int argc, char *argv[])
 	libt_add_timeout(0, mqtt_maintenance, mosq);
 	libe_add_fd(mosquitto_socket(mosq), recvd_mosq, mosq);
 
+	/* listen to wall-time changes */
+	int tcfd = libtimechange_makefd();
+	if (tcfd < 0)
+		mylog(LOG_ERR, "timerfd: %s", ESTR(errno));
+	if (libtimechange_arm(tcfd) < 0)
+		mylog(LOG_ERR, "timerfd rearm: %s", ESTR(errno));
+	libe_add_fd(tcfd, timechanged, NULL);
+
+	/* core loop */
 	while (1) {
 		mosq_update_flags();
 		libt_flush();

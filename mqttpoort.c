@@ -957,12 +957,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				it->reqval = NAN;
 				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
 			}
-			it->currval = 0;
-			poort_publish(it);
-			libt_remove_timeout(on_poort_moved, it);
 			switch (it->ctltype) {
 			case PUSHBUTTON:
+				it->currval = 0;
 				it->state = ST_CLOSED;
+				libt_remove_timeout(on_poort_moved, it);
+				poort_publish(it);
 				poort_publish_dir(it);
 				poort_publish_homekit(it);
 				if (posctrl(it) && it->reqval > 0.1)

@@ -27,15 +27,17 @@ int rpn_env_isnew(void)
 static void my_rpn_run(struct rpn *rpn)
 {
 	struct stack rpnstack = {};
+	struct rpn_el *el;
 	int j;
 
 	if (rpn_run(&rpnstack, rpn))
 		printf("failed\n");
 	for (j = 0; j < rpnstack.n; ++j) {
-		if (j == rpnstack.n-1 && rpnstack.strvalue)
-			printf("%s\"%s\"", j ? " " : "", rpnstack.strvalue);
+		el = rpnstack.v+j;
+		if (el->a)
+			printf("%s\"%s\"", j ? " " : "", el->a);
 		else
-			printf("%s%s", j ? " " : "", mydtostr(rpnstack.v[j]));
+			printf("%s%s", j ? " " : "", mydtostr(el->d));
 	}
 	printf("\n");
 	fflush(stdout);

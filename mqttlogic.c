@@ -340,7 +340,8 @@ static void do_logic(struct item *it, struct topic *trigger)
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;
-	result = rpnstack.strvalue ?: mydtostr(rpnstack.v[rpnstack.n-1]);
+	struct rpn_el *el = rpnstack.v+rpnstack.n-1;
+	result = el->a ?: mydtostr(el->d);
 	/* test if we found something new */
 	if (!strcmp(it->lastvalue ?: "", result))
 		return;

@@ -2,17 +2,19 @@
 #define _RPNLOGIC_H_
 
 struct stack {
-	double *v; /* element array */
+	struct rpn_el {
+		double d;
+		const char *a;
+	} *v /* element array */;
 	int n; /* used elements */
 	int s; /* allocated elements */
-	const char *strvalue;
-	int strvalueset; /* keep strvalue */
 	struct rpn *jumpto;
+	int errnum;
 };
 
 struct rpn {
 	struct rpn *next;
-	int (*run)(struct stack *st, struct rpn *me);
+	void (*run)(struct stack *st, struct rpn *me);
 	int flags;
 	void *dat;
 	char *topic;

@@ -14,6 +14,7 @@
 #include "sun.h"
 #include "common.h"
 
+static const struct rpn_el dummy = { .a = NULL, .d = NAN, };
 /* placeholder for quitting */
 #define QUIT	((struct rpn *)0xdeadbeef)
 /* manage */
@@ -59,278 +60,7 @@ static inline int rpn_toint(double val)
 		return (int)val;
 }
 
-static inline void rpn_set_strvalue(struct stack *st, const char *value)
-{
-	st->strvalue = value;
-	st->strvalueset = 1;
-}
-
-/* algebra */
-static int rpn_do_plus(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] + st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_minus(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] - st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_mul(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] * st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_div(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] / st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_mod(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = fmod(st->v[st->n-2], st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_pow(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = pow(st->v[st->n-2], st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_negative(struct stack *st, struct rpn *me)
-{
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-1] = -st->v[st->n-1];
-	return 0;
-}
-
-/* utilities */
-static int rpn_do_limit(struct stack *st, struct rpn *me)
-{
-	if (st->n < 3)
-		/* stack underflow */
-		return -1;
-	/* limit x-3 between x-2 & x-1 */
-	if (st->v[st->n-3] < st->v[st->n-2])
-		st->v[st->n-3] = st->v[st->n-2];
-	else if (st->v[st->n-3] > st->v[st->n-1])
-		st->v[st->n-3] = st->v[st->n-1];
-	st->n -= 2;
-	return 1;
-}
-
-static int rpn_do_inrange(struct stack *st, struct rpn *me)
-{
-	if (st->n < 3)
-		/* stack underflow */
-		return -1;
-	/* limit x-3 between x-2 & x-1 */
-	if (st->v[st->n-2] < st->v[st->n-1])
-		/* regular case: DUT min max */
-		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) && (st->v[st->n-3] <= st->v[st->n-1]);
-	else if (st->v[st->n-2] > st->v[st->n-1])
-		/* regular case: DUT max min */
-		st->v[st->n-3] = (st->v[st->n-3] >= st->v[st->n-2]) || (st->v[st->n-3] <= st->v[st->n-1]);
-	else
-		st->v[st->n-3] = 0;
-	st->n -= 2;
-	return 1;
-}
-
-static int rpn_do_category(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	double value = st->v[st->n-2];
-	double ncat = rpn_toint(st->v[st->n-1]);
-
-	value = rpn_toint(value*ncat);
-
-	if (value < 0)
-		value = 0;
-	else if (value > (ncat-1))
-		value = ncat-1;
-	st->n -= 1;
-	st->v[st->n-1] = value;
-
-	return value;
-}
-
-static int rpn_do_hyst2(struct stack *st, struct rpn *me)
-{
-	if (st->n < 3)
-		/* stack underflow */
-		return -1;
-	double hi, lo;
-
-	if (st->v[st->n-2] < st->v[st->n-1]) {
-		hi = st->v[st->n-1];
-		lo = st->v[st->n-2];
-	} else {
-		lo = st->v[st->n-1];
-		hi = st->v[st->n-2];
-	}
-	/* limit x-3 between x-2 & x-1 */
-	if (st->v[st->n-3] > hi)
-		me->cookie = 1;
-	else if (st->v[st->n-3] < lo)
-		me->cookie = 0;
-	st->v[st->n-3] = me->cookie;
-	st->n -= 2;
-	return 1;
-}
-
-static int rpn_do_hyst1(struct stack *st, struct rpn *me)
-{
-	if (st->n < 3)
-		/* stack underflow */
-		return -1;
-	double test, marg;
-
-	test = st->v[st->n-2];
-	marg = st->v[st->n-1];
-
-	/* limit x-3 between x-2 & x-1 */
-	if (st->v[st->n-3] > test+marg)
-		me->cookie = 1;
-	else if (st->v[st->n-3] < test-marg)
-		me->cookie = 0;
-	st->v[st->n-3] = me->cookie;
-	st->n -= 2;
-	return 1;
-}
-
-/* bitwise */
-static int rpn_do_bitand(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) & rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_bitor(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) | rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_bitxor(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) ^ rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_bitinv(struct stack *st, struct rpn *me)
-{
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-1] = ~rpn_toint(st->v[st->n-1]);
-	return 0;
-}
-
-/* boolean */
-static int rpn_do_booland(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) && rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_boolor(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) || rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_boolnot(struct stack *st, struct rpn *me)
-{
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-1] = !rpn_toint(st->v[st->n-1]);
-	return 0;
-}
-static int rpn_do_intequal(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) == rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_intnotequal(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = rpn_toint(st->v[st->n-2]) != rpn_toint(st->v[st->n-1]);
-	st->n -= 1;
-	return 0;
-}
-
-/* compare */
-static int rpn_do_lt(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] < st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-static int rpn_do_gt(struct stack *st, struct rpn *me)
-{
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	st->v[st->n-2] = st->v[st->n-2] > st->v[st->n-1];
-	st->n -= 1;
-	return 0;
-}
-
-/* generic */
-static void rpn_push(struct stack *st, double value)
+static void rpn_reserve(struct stack *st)
 {
 	if (st->n >= st->s) {
 		st->s += 16;
@@ -338,70 +68,295 @@ static void rpn_push(struct stack *st, double value)
 		if (!st->v)
 			mylog(LOG_ERR, "realloc stack %u failed", st->s);
 	}
-	st->v[st->n++] = value;
 }
 
-static int rpn_do_const(struct stack *st, struct rpn *me)
+static void rpn_push_el(struct stack *st, const struct rpn_el *el)
 {
-	rpn_set_strvalue(st, me->strvalue);
-	rpn_push(st, me->value);
-	return 0;
+	rpn_reserve(st);
+	st->v[st->n++] = *el;
 }
 
-static int rpn_do_strconst(struct stack *st, struct rpn *me)
+static void rpn_push_str(struct stack *st, const char *str, double value)
 {
-	rpn_set_strvalue(st, me->strvalue);
-	rpn_push(st, mystrtod(st->strvalue ?: "nan", NULL));
-	return 0;
+	rpn_reserve(st);
+	st->v[st->n].a = str;
+	st->v[st->n++].d = value;
+}
+static inline void rpn_push(struct stack *st, double value)
+{
+	rpn_push_str(st, NULL, value);
+}
+static struct rpn_el *rpn_pop1(struct stack *st)
+{
+	if (st->n < 1) {
+		st->errnum = ECANCELED;
+		st->n = 0;
+		return (struct rpn_el *)&dummy;
+	} else {
+		st->n -= 1;
+		return st->v+st->n;
+	}
+}
+static void rpn_pop(struct stack *st, int n)
+{
+	if (st->n < n) {
+		st->errnum = ECANCELED;
+		st->n = 0;
+	} else
+		st->n -= n;
+}
+static inline struct rpn_el *rpn_n(struct stack *st, int idx)
+{
+	if (idx >= 0 || -idx > st->n) {
+		st->errnum = ECANCELED;
+		return (struct rpn_el *)&dummy;
+	}
+	return st->v+st->n+idx;
 }
 
-static int rpn_do_env(struct stack *st, struct rpn *me)
+/* algebra */
+static void rpn_do_plus(struct stack *st, struct rpn *me)
 {
-	rpn_set_strvalue(st, rpn_lookup_env(me->topic, me));
-	rpn_push(st, mystrtod(st->strvalue ?: "nan", NULL));
-	return 0;
+	double tmp = rpn_n(st, -2)->d + rpn_n(st, -1)->d;
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_minus(struct stack *st, struct rpn *me)
+{
+	double tmp = rpn_n(st, -2)->d - rpn_n(st, -1)->d;
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_mul(struct stack *st, struct rpn *me)
+{
+	double tmp = rpn_n(st, -2)->d * rpn_n(st, -1)->d;
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_div(struct stack *st, struct rpn *me)
+{
+	double tmp = rpn_n(st, -2)->d / rpn_n(st, -1)->d;
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_mod(struct stack *st, struct rpn *me)
+{
+	double tmp = fmod(rpn_n(st, -2)->d, rpn_n(st, -1)->d);
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_pow(struct stack *st, struct rpn *me)
+{
+	double tmp = pow(rpn_n(st, -2)->d, rpn_n(st, -1)->d);
+	rpn_pop(st, 2);
+	rpn_push(st, tmp);
+}
+static void rpn_do_negative(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, -rpn_pop1(st)->d);
 }
 
-static int rpn_do_writeenv(struct stack *st, struct rpn *me)
+/* utilities */
+static void rpn_do_limit(struct stack *st, struct rpn *me)
 {
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
+	struct rpn_el *dut = rpn_n(st, -3);
+	struct rpn_el *min = rpn_n(st, -2);
+	struct rpn_el *max = rpn_n(st, -1);
 
-	rpn_write_env(st->strvalue ?: mydtostr(st->v[st->n-1]), me->topic, me);
-	st->n -= 1;
-	return 0;
+	/* limit x-3 between x-2 & x-1 */
+	if (dut->d < min->d)
+		*dut = *min;
+	else if (dut->d > max->d)
+		*dut = *max;
+	rpn_pop(st, 2);
 }
 
-static int rpn_do_dup(struct stack *st, struct rpn *me)
+static void rpn_do_inrange(struct stack *st, struct rpn *me)
 {
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-	rpn_push(st, st->v[st->n-1]);
-	return 0;
-}
-static int rpn_do_swap(struct stack *st, struct rpn *me)
-{
-	double tmp;
+	int result;
+	struct rpn_el *dut = rpn_n(st, -3);
+	struct rpn_el *min = rpn_n(st, -2);
+	struct rpn_el *max = rpn_n(st, -1);
 
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-	tmp = st->v[st->n-2];
-	st->v[st->n-2] = st->v[st->n-1];
-	st->v[st->n-1] = tmp;
-	return 0;
+	/* test x-3 between x-2 & x-1 */
+	if (min->d < max->d)
+		/* regular case: DUT min max */
+		result = dut->d >= min->d && dut->d <= max->d;
+	else if (min->d > max->d)
+		/* inverted case: DUT max min */
+		result = dut->d >= min->d || dut->d <= max->d;
+	else
+		result = 0;
+	rpn_pop(st, 3);
+	rpn_push(st, result);
 }
-static int rpn_do_ifthenelse(struct stack *st, struct rpn *me)
-{
-	if (st->n < 3)
-		/* stack underflow */
-		return -1;
 
-	st->v[st->n-3] = rpn_toint(st->v[st->n-3]) ? st->v[st->n-2] : st->v[st->n-1];
-	st->n -= 2;
-	return 0;
+static void rpn_do_category(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *val = rpn_n(st, -2);
+	int ncat = rpn_toint(rpn_n(st, -1)->d);
+	double value = rpn_toint(val->d * ncat);
+	if (value < 0)
+		value = 0;
+	else if (value > (ncat-1))
+		value = ncat-1;
+	rpn_pop(st, 2);
+	rpn_push(st, value);
+}
+
+static void rpn_do_hyst2(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *dut = rpn_n(st, -3);
+	struct rpn_el *lo = rpn_n(st, -2);
+	struct rpn_el *hi = rpn_n(st, -1);
+
+	if (dut->d > hi->d)
+		me->cookie = 1;
+	else if (dut->d < lo->d)
+		me->cookie = 0;
+	rpn_pop(st, 3);
+	rpn_push(st, me->cookie);
+}
+
+static void rpn_do_hyst1(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *dut = rpn_n(st, -3);
+	struct rpn_el *setp = rpn_n(st, -2);
+	struct rpn_el *marg = rpn_n(st, -1);
+
+	if (dut->d > setp->d+marg->d)
+		me->cookie = 1;
+	else if (dut->d < setp->d-marg->d)
+		me->cookie = 0;
+	rpn_pop(st, 3);
+	rpn_push(st, me->cookie);
+}
+
+/* bitwise */
+static void rpn_do_bitand(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, rpn_toint(a->d) & rpn_toint(b->d));
+}
+static void rpn_do_bitor(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, rpn_toint(a->d) | rpn_toint(b->d));
+}
+static void rpn_do_bitxor(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, rpn_toint(a->d) ^ rpn_toint(b->d));
+}
+static void rpn_do_bitinv(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, ~rpn_toint(rpn_pop1(st)->d));
+}
+
+/* boolean */
+static void rpn_do_booland(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, rpn_toint(a->d) && rpn_toint(b->d));
+}
+static void rpn_do_boolor(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, rpn_toint(a->d) || rpn_toint(b->d));
+}
+static void rpn_do_boolnot(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, !rpn_toint(rpn_pop1(st)->d));
+}
+static void rpn_do_intequal(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+	int result;
+
+	if (a->a && b->a)
+		result = !strcasecmp(a->a, b->a);
+	else
+		result = rpn_toint(a->d) == rpn_toint(b->d);
+	rpn_pop(st, 2);
+	rpn_push(st, result);
+}
+static void rpn_do_intnotequal(struct stack *st, struct rpn *me)
+{
+	rpn_do_intequal(st, me);
+	rpn_push(st, !rpn_toint(rpn_pop1(st)->d));
+}
+
+/* compare */
+static void rpn_do_lt(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, a->d < b->d);
+}
+static void rpn_do_gt(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_n(st, -2);
+	struct rpn_el *b = rpn_n(st, -1);
+
+	rpn_pop(st, 2);
+	rpn_push(st, a->d > b->d);
+}
+
+/* generic */
+static void rpn_do_const(struct stack *st, struct rpn *me)
+{
+	rpn_push_str(st, me->strvalue, me->value);
+}
+
+static void rpn_do_env(struct stack *st, struct rpn *me)
+{
+	const char *str = rpn_lookup_env(me->topic, me);
+	rpn_push_str(st, str, mystrtod(str ?: "nan", NULL));
+}
+
+static void rpn_do_writeenv(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *val = rpn_pop1(st);
+	rpn_write_env(val->a ?: mydtostr(val->d), me->topic, me);
+}
+
+static void rpn_do_dup(struct stack *st, struct rpn *me)
+{
+	rpn_push_el(st, rpn_n(st, -1));
+}
+static void rpn_do_swap(struct stack *st, struct rpn *me)
+{
+	struct rpn_el a = *rpn_pop1(st);
+	struct rpn_el b = *rpn_pop1(st);
+
+	rpn_push_el(st, &a);
+	rpn_push_el(st, &b);
+}
+static void rpn_do_ifthenelse(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *f = rpn_pop1(st); /* false */
+	struct rpn_el *t = rpn_pop1(st); /* true */
+	struct rpn_el *c = rpn_pop1(st); /* condition */
+
+	rpn_push_el(st, rpn_toint(c->d) ? t : f);
 }
 
 /* timer functions */
@@ -413,19 +368,15 @@ static void on_delay(void *dat)
 	me->cookie ^= 1;
 	rpn_run_again(me);
 }
-static int rpn_do_offdelay(struct stack *st, struct rpn *me)
+static void rpn_do_offdelay(struct stack *st, struct rpn *me)
 {
-	int inval;
-
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-2]);
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
 	if (!inval && (me->cookie & 2)) {
 		/* falling edge: schedule timeout */
-		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		libt_add_timeout(delay->d, on_delay, me);
 		me->timeout = on_delay;
 		/* clear cache */
 		me->cookie &= ~2;
@@ -436,23 +387,17 @@ static int rpn_do_offdelay(struct stack *st, struct rpn *me)
 		me->cookie = 2+1;
 	}
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie & 1;
-	st->n -= 1;
-	return 0;
+	rpn_push(st, me->cookie & 1);
 }
-static int rpn_do_afterdelay(struct stack *st, struct rpn *me)
+static void rpn_do_afterdelay(struct stack *st, struct rpn *me)
 {
-	int inval;
-
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-2]);
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
 	if (!inval && (me->cookie & 2)) {
 		/* falling edge: schedule timeout */
-		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		libt_add_timeout(delay->d, on_delay, me);
 		me->timeout = on_delay;
 		/* set output, clear cached input */
 		me->cookie = 1;
@@ -461,23 +406,17 @@ static int rpn_do_afterdelay(struct stack *st, struct rpn *me)
 		me->cookie |= 2;
 	}
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie & 1;
-	st->n -= 1;
-	return 0;
+	rpn_push(st, me->cookie & 1);
 }
-static int rpn_do_ondelay(struct stack *st, struct rpn *me)
+static void rpn_do_ondelay(struct stack *st, struct rpn *me)
 {
-	int inval;
-
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-2]);
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
 	if (inval && !(me->cookie & 2)) {
 		/* rising edge: schedule timeout */
-		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		libt_add_timeout(delay->d, on_delay, me);
 		me->timeout = on_delay;
 		/* set cache */
 		me->cookie |= 2;
@@ -488,25 +427,19 @@ static int rpn_do_ondelay(struct stack *st, struct rpn *me)
 		me->cookie = 0;
 	}
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie & 1;
-	st->n -= 1;
-	return 0;
+	rpn_push(st, me->cookie & 1);
 }
-static int rpn_do_debounce(struct stack *st, struct rpn *me)
+static void rpn_do_debounce(struct stack *st, struct rpn *me)
 {
-	int inval;
-
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-2]);
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
 	if (inval != !!(me->cookie & 2)) {
 		/* input changed from last value */
 		if (inval != (me->cookie & 1)) {
 			/* schedule timeout if different */
-			libt_add_timeout(st->v[st->n-1], on_delay, me);
+			libt_add_timeout(delay->d, on_delay, me);
 			me->timeout = on_delay;
 		} else
 			/* value equals output, cancel timer */
@@ -514,24 +447,18 @@ static int rpn_do_debounce(struct stack *st, struct rpn *me)
 		me->cookie = (me->cookie & ~2) | (inval ? 2 : 0);
 	}
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie & 1;
-	st->n -= 1;
-	return 0;
+	rpn_push(st, me->cookie & 1);
 }
 
-static int rpn_do_autoreset(struct stack *st, struct rpn *me)
+static void rpn_do_autoreset(struct stack *st, struct rpn *me)
 {
-	int inval;
-
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-2]);
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
 	if (inval && !(me->cookie & 2)) {
 		/* rising edge, schedule reset */
-		libt_add_timeout(st->v[st->n-1], on_delay, me);
+		libt_add_timeout(delay->d, on_delay, me);
 		me->timeout = on_delay;
 		me->cookie |= 2+1;
 	} else if (!inval && (me->cookie & 2)) {
@@ -541,87 +468,67 @@ static int rpn_do_autoreset(struct stack *st, struct rpn *me)
 	}
 
 	/* write output to stack */
-	st->v[st->n-2] = me->cookie & 1;
-	st->n -= 1;
-	return 0;
+	rpn_push(st, me->cookie & 1);
 }
 
 /* event functions */
-static int rpn_do_edge(struct stack *st, struct rpn *me)
+static void rpn_do_edge(struct stack *st, struct rpn *me)
 {
-	int inval;
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-1]);
-	st->v[st->n-1] = inval != me->cookie;
+	rpn_push(st, inval != me->cookie);
 	me->cookie = inval;
-	return 0;
 }
 
-static int rpn_do_rising(struct stack *st, struct rpn *me)
+static void rpn_do_rising(struct stack *st, struct rpn *me)
 {
-	int inval;
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-1]);
-	/* set output on rising edge */
-	st->v[st->n-1] = inval && !me->cookie;
+	rpn_push(st, inval && !me->cookie);
 	me->cookie = inval;
-	return 0;
 }
 
-static int rpn_do_falling(struct stack *st, struct rpn *me)
+static void rpn_do_falling(struct stack *st, struct rpn *me)
 {
-	int inval;
+	struct rpn_el *input = rpn_pop1(st);
+	int inval = rpn_toint(input->d);
 
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-
-	inval = rpn_toint(st->v[st->n-1]);
-	/* set output on rising edge */
-	st->v[st->n-1] = !inval && me->cookie;
+	rpn_push(st, !inval && me->cookie);
 	me->cookie = inval;
-	return 0;
 }
-static int rpn_do_isnew(struct stack *st, struct rpn *me)
+static void rpn_do_isnew(struct stack *st, struct rpn *me)
 {
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
-	if (!rpn_env_isnew())
-		st->v[st->n-1] = NAN;
-	return 0;
+	if (st->n < 1) {
+		st->errnum = ECANCELED;
+		return;
+	}
+	if (!rpn_env_isnew()) {
+		rpn_pop1(st);
+		rpn_push_el(st, &dummy);
+	}
 }
 
 /* date/time functions */
-static int rpn_do_wakeup(struct stack *st, struct rpn *me)
+static void rpn_do_wakeup(struct stack *st, struct rpn *me)
 {
+	struct rpn_el *delay = rpn_pop1(st);
 	time_t t, next;
 	int align;
 
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
 	/* leave the diff with the latest value on stack */
-	align = rpn_toint(st->v[st->n-1]);
+	align = rpn_toint(delay->d);
+	if (!align)
+		align = 1;
 	time(&t);
 
 	next = t - t % align + align;
 	libt_add_timeout(next - t, rpn_run_again, me);
 	me->timeout = rpn_run_again;
-
-	st->n -= 1;
-	return 0;
 }
 
-static int rpn_do_timeofday(struct stack *st, struct rpn *me)
+static void rpn_do_timeofday(struct stack *st, struct rpn *me)
 {
 	time_t t;
 	struct tm *tm;
@@ -629,10 +536,9 @@ static int rpn_do_timeofday(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_hour*3600 + tm->tm_min*60 + tm->tm_sec);
-	return 0;
 }
 
-static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
+static void rpn_do_dayofweek(struct stack *st, struct rpn *me)
 {
 	time_t t;
 	struct tm *tm;
@@ -640,92 +546,73 @@ static int rpn_do_dayofweek(struct stack *st, struct rpn *me)
 	time(&t);
 	tm = localtime(&t);
 	rpn_push(st, tm->tm_wday ?: 7 /* push 7 for sunday */);
-	return 0;
 }
 
-static int rpn_do_abstime(struct stack *st, struct rpn *me)
+static void rpn_do_abstime(struct stack *st, struct rpn *me)
 {
 	rpn_push(st, time(NULL));
-	return 0;
 }
 
-static int rpn_do_uptime(struct stack *st, struct rpn *me)
+static void rpn_do_uptime(struct stack *st, struct rpn *me)
 {
 	int ret, fd;
 	char buf[128];
 
 	fd = open("/proc/uptime", O_RDONLY);
-	if (fd < 0)
-		return -errno;
+	if (fd < 0) {
+		st->errnum = errno;
+		return;
+	}
 	ret = read(fd, buf, sizeof(buf));
 	if (ret > 0) {
 		buf[ret] = 0;
 		rpn_push(st, strtoul(buf, 0, 0));
-	}
+	} else
+		rpn_push(st, NAN);
 	close(fd);
-	return ret;
 }
 
-static int rpn_do_strftime(struct stack *st, struct rpn *me)
+static void rpn_do_strftime(struct stack *st, struct rpn *me)
 {
 	static char buf[1024];
+	struct rpn_el *fmt = rpn_pop1(st);
+	struct rpn_el *t = rpn_pop1(st);
 
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	if (!st->strvalue)
-		return -1;
-
-	long stamp = st->v[st->n-2];
-	strftime(buf, sizeof(buf), st->strvalue, localtime(&stamp));
-	st->n -= 1;
-	rpn_set_strvalue(st, buf);
-	return 0;
+	time_t stamp = t->d;
+	strftime(buf, sizeof(buf), fmt->a, localtime(&stamp));
+	rpn_push_str(st, buf, NAN);
 }
 
 /* sun position */
-static int rpn_do_sun(struct stack *st, struct rpn *me)
+static void rpn_do_sun(struct stack *st, struct rpn *me)
 {
+	struct rpn_el *lon = rpn_pop1(st);
+	struct rpn_el *lat = rpn_pop1(st);
+
 	double incl, azm;
 	int ret;
 
-	if (st->n < 2)
-		/* stack underflow */
-		return -1;
-
-	ret = sungetpos(time(NULL), st->v[st->n-2], st->v[st->n-1], &incl, &azm, NULL);
-	st->n -= 2;
+	ret = sungetpos(time(NULL), lat->d, lon->d, &incl, &azm, NULL);
 	rpn_push(st, (ret >= 0) ? incl : NAN);
-	return 0;
 }
 
 /* flow control */
-static int rpn_do_if(struct stack *st, struct rpn *me)
+static void rpn_do_if(struct stack *st, struct rpn *me)
 {
-	if (st->n < 1)
-		/* stack underflow */
-		return -1;
+	struct rpn_el *cond = rpn_pop1(st);
 
-	if (!rpn_toint(st->v[st->n-1]))
+	if (!rpn_toint(cond->d))
 		st->jumpto = me->rpn ?: QUIT;
-	st->n -= 1;
-	st->strvalueset = 1;
-	return 0;
 }
 
-static int rpn_do_else(struct stack *st, struct rpn *me)
+static void rpn_do_else(struct stack *st, struct rpn *me)
 {
 	st->jumpto = me->rpn ?: QUIT;
-	st->strvalueset = 1;
-	return 0;
 }
 
-static int rpn_do_fi(struct stack *st, struct rpn *me)
+static void rpn_do_fi(struct stack *st, struct rpn *me)
 {
 	/* this is a marker */
-	st->strvalueset = 1;
-	return 0;
 }
 
 static void rpn_find_fi_else(struct rpn *rpn,
@@ -772,37 +659,28 @@ static void rpn_test_else(struct rpn *me)
 	me->rpn = pfi;
 }
 
-static int rpn_do_quit(struct stack *st, struct rpn *me)
+static void rpn_do_quit(struct stack *st, struct rpn *me)
 {
 	st->jumpto = QUIT;
-	/* real quit is done in rpn_run */
-	st->strvalueset = 1;
-	return 0;
 }
 
 /* run time functions */
 void rpn_stack_reset(struct stack *st)
 {
 	st->n = 0;
-	st->strvalue = NULL;
 	st->jumpto = NULL;
+	st->errnum = 0;
 }
 
 int rpn_run(struct stack *st, struct rpn *rpn)
 {
-	int ret;
-
 	for (; rpn; rpn = st->jumpto ?: rpn->next) {
 		if (rpn == QUIT)
 			break;
 		st->jumpto = NULL;
-		st->strvalueset = 0;
-		ret = rpn->run(st, rpn);
-		if (!st->strvalueset)
-			/* keep st->strvalue valid only 1 iteration */
-			st->strvalue = NULL;
-		if (ret < 0)
-			return ret;
+		rpn->run(st, rpn);
+		if (st->errnum)
+			return -st->errnum;
 	}
 	return 0;
 }
@@ -810,7 +688,7 @@ int rpn_run(struct stack *st, struct rpn *rpn)
 /* parser */
 static struct lookup {
 	const char *str;
-	int (*run)(struct stack *, struct rpn *);
+	void (*run)(struct stack *, struct rpn *);
 	int flags;
 } const lookups[] = {
 	{ "+", rpn_do_plus, },
@@ -965,8 +843,9 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 			if (tok[strlen(tok)-1] == '"')
 				tok[strlen(tok)-1] = 0;
 			++tok;
-			rpn->run = rpn_do_strconst;
+			rpn->run = rpn_do_const;
 			rpn->strvalue = strdup(tok);
+			rpn->value = mystrtod(tok, NULL);
 
 		} else if (strchr("$>=", *tok) && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
 			rpn->topic = strndup(tok+2, strlen(tok+2)-1);

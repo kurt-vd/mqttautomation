@@ -803,9 +803,6 @@ static char *mystrtok(char *newstr, const char *sep)
 				/* end reached */
 				*str++ = 0;
 				return savedstr;
-			} else {
-				/* start ok token */
-				savedstr = str;
 			}
 		} else {
 			if (!savedstr)

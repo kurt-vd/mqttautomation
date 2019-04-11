@@ -60,6 +60,18 @@ static inline int rpn_toint(double val)
 		return (int)val;
 }
 
+static inline int dblcmp(double a, double b, double diff)
+{
+	if (isnan(a) && isnan(b))
+		return 0;
+	if (fabs(2*(a-b)/(a+b)) < diff)
+		return 0;
+	else if (a < b)
+		return -1;
+	else
+		return 1;
+}
+
 static void rpn_reserve(struct stack *st)
 {
 	if (st->n >= st->s) {
@@ -449,6 +461,30 @@ static void rpn_do_debounce(struct stack *st, struct rpn *me)
 	/* write output to stack */
 	rpn_push(st, me->cookie & 1);
 }
+static void rpn_do_debounce2(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *delay = rpn_pop1(st);
+	struct rpn_el *input = rpn_pop1(st);
+	double inval = input->d;
+
+	/* this works like a debounce, but emits the first event immediately
+	 * it is usefull to throttle changes
+	 * bit 0: set when throttling
+	 * bit 1: last sampled real value
+	 */
+	if (me->cookie & 1)
+		inval = me->value;
+	else if (dblcmp(inval, me->value, 0.001)) {
+		/* input changed from last value */
+		/* schedule timeout */
+		libt_add_timeout(delay->d, on_delay, me);
+		me->timeout = on_delay;
+		me->cookie |= 1;
+		me->value = inval;
+	}
+	/* write output to stack */
+	rpn_push(st, inval);
+}
 
 static void rpn_do_autoreset(struct stack *st, struct rpn *me)
 {
@@ -724,11 +760,13 @@ static struct lookup {
 	{ "hyst1", rpn_do_hyst1, },
 	{ "hyst2", rpn_do_hyst2, },
 	{ "hyst", rpn_do_hyst2, },
+	{ "throttle", rpn_do_debounce2, },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },
 	{ "afterdelay", rpn_do_afterdelay, },
 	{ "debounce", rpn_do_debounce, },
+	{ "debounce2", rpn_do_debounce2, },
 	{ "autoreset", rpn_do_autoreset, },
 
 	{ "isnew", rpn_do_isnew, },

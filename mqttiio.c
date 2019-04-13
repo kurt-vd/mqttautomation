@@ -381,7 +381,8 @@ static void iiodev_data(int fd, void *dat)
 			if (!strcmp(el->name, "timestamp") && el->offset == 0.0 && el->scale == 1.0) {
 				static char longbuf[128];
 
-				sprintf(longbuf, "%llu", val64);
+				sprintf(longbuf, "%llu.%06llu", (unsigned long long)val64 / 1000000000ULL,
+						((unsigned long long)val64 % 1000000000ULL)/1000);
 				payload = longbuf;
 			} else
 			if (!el->sign)

@@ -478,36 +478,48 @@ static int elementcmp(const void *va, const void *vb)
 	return a->index - b->index;
 }
 
+__attribute__((format(printf,2,3)))
+static const char *prop_read2(int acceptable_errno, const char *fmt, ...)
+{
+	static char value[1024];
+	va_list va;
+	char *filename;
+	int fd, ret;
+
+	va_start(va, fmt);
+	vasprintf(&filename, fmt, va);
+	va_end(va);
+
+	fd = open(filename, O_RDONLY);
+	if (fd < 0 && errno != acceptable_errno)
+		mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
+	if (fd < 0) {
+		free(filename);
+		return NULL;
+	}
+	ret = read(fd, value, sizeof(value)-1);
+	if (ret < 0)
+		mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
+	close(fd);
+	/* null terminate */
+	value[ret] = 0;
+	free(filename);
+	return value;
+}
+
+#define prop_read(fmt, ...) prop_read2(0, fmt, ##__VA_ARGS__)
+
 static void load_element(const struct iiodev *dev, struct iioel *el)
 {
 	static char filename[2048];
-	static char prop[1024];
-	int fd, ret;
+	const char *prop;
 
 	/* read index */
-	sprintf(filename, "/sys/bus/iio/devices/%s/scan_elements/in_%s_index", dev->name, el->name);
-	ret = fd = open(filename, O_RDONLY);
-	if (ret < 0)
-		mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
-	ret = read(fd, prop, sizeof(prop)-1);
-	if (ret < 0)
-		mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
-	close(fd);
-	prop[ret] = 0;
-	/* parse */
+	prop = prop_read("/sys/bus/iio/devices/%s/scan_elements/in_%s_index", dev->name, el->name);
 	el->index = strtoul(prop, NULL, 0);
 
 	/* decode type */
-	sprintf(filename, "/sys/bus/iio/devices/%s/scan_elements/in_%s_type", dev->name, el->name);
-	ret = fd = open(filename, O_RDONLY);
-	if (ret < 0)
-		mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
-	ret = read(fd, prop, sizeof(prop)-1);
-	if (ret < 0)
-		mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
-	close(fd);
-	prop[ret] = 0;
-	/* parse */
+	prop = prop_read("/sys/bus/iio/devices/%s/scan_elements/in_%s_type", dev->name, el->name);
 	char le, sign;
 	int bitsfill;
 	if (sscanf(prop, "%ce:%c%u/%u>>%u", &le, &sign,
@@ -518,38 +530,12 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 	el->bytesused = bitsfill / 8;
 
 	/* decode offset */
-	sprintf(filename, "/sys/bus/iio/devices/%s/in_%s_offset", dev->name, el->name);
-	ret = fd = open(filename, O_RDONLY);
-	if (ret < 0 && errno != ENOENT)
-		mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
-	if (ret < 0) {
-		prop[0] = 0;
-		goto parse_offset;
-	}
-	ret = read(fd, prop, sizeof(prop)-1);
-	if (ret < 0)
-		mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
-	close(fd);
-	prop[ret] = 0;
-parse_offset:
-	el->offset = strtod(prop, NULL);
+	prop = prop_read2(ENOENT, "/sys/bus/iio/devices/%s/in_%s_offset", dev->name, el->name);
+	el->offset = strtod(prop ?: "0", NULL);
 
 	/* decode scale */
-	sprintf(filename, "/sys/bus/iio/devices/%s/in_%s_scale", dev->name, el->name);
-	ret = fd = open(filename, O_RDONLY);
-	if (ret < 0 && errno != ENOENT)
-		mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
-	if (ret < 0) {
-		strcpy(prop, "1");
-		goto parse_scale;
-	}
-	ret = read(fd, prop, sizeof(prop)-1);
-	if (ret < 0)
-		mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
-	close(fd);
-	prop[ret] = 0;
-parse_scale:
-	el->scale = strtod(prop, NULL);
+	prop = prop_read2(ENOENT, "/sys/bus/iio/devices/%s/in_%s_scale", dev->name, el->name);
+	el->scale = strtod(prop ?: "1", NULL);
 
 	/* find si multiplier */
 	if (!strncmp("temp", el->name, 4)) {

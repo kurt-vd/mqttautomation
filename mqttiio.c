@@ -749,12 +749,40 @@ done_elements: ;
 static void mqtt_fd_ready(int fd, void *dat)
 {
 	struct mosquitto *mosq = dat;
+	int evs = libe_fd_evs(fd);
 	int ret;
 
-	/* mqtt read ... */
-	ret = mosquitto_loop_read(mosq, 1);
+	if (evs & LIBE_RD) {
+		/* mqtt read ... */
+		ret = mosquitto_loop_read(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_read: %s", mosquitto_strerror(ret));
+	}
+	if (evs & LIBE_WR) {
+		/* flush mqtt write queue _after_ the timers have run */
+		ret = mosquitto_loop_write(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_write: %s", mosquitto_strerror(ret));
+	}
+}
+
+static void mqtt_update_flags(void *dat)
+{
+	struct mosquitto *mosq = dat;
+
+	if (mosq)
+		libe_mod_fd(mosquitto_socket(mosq), LIBE_RD | (mosquitto_want_write(mosq) ? LIBE_WR : 0));
+}
+
+static void mqtt_maintenance(void *dat)
+{
+	int ret;
+	struct mosquitto *mosq = dat;
+
+	ret = mosquitto_loop_misc(mosq);
 	if (ret)
-		mylog(LOG_ERR, "mosquitto_loop_read: %s", mosquitto_strerror(ret));
+		mylog(LOG_ERR, "mosquitto_loop_misc: %s", mosquitto_strerror(ret));
+	libt_add_timeout(2.3, mqtt_maintenance, dat);
 }
 
 int main(int argc, char *argv[])
@@ -828,31 +856,20 @@ int main(int argc, char *argv[])
 			if (ret)
 				mylog(LOG_ERR, "mosquitto_subscribe %s: %s", argv[optind], mosquitto_strerror(ret));
 		}
+		libt_add_timeout(0, mqtt_maintenance, mosq);
 		libe_add_fd(mosquitto_socket(mosq), mqtt_fd_ready, mosq);
 	}
 
 	/* prepare epoll */
 	scan_iio(0);
 
+	/* core loop */
 	while (1) {
 		libt_flush();
+		mqtt_update_flags(mosq);
 		ret = libe_wait(libt_get_waittime());
-		if (ret < 0 && errno == EINTR)
-			continue;
-		if (ret < 0)
-			mylog(LOG_ERR, "libe_wait ...: %s", ESTR(errno));
-		libe_flush();
-		if (!nomqtt) {
-			/* mosquitto things to do each iteration */
-			ret = mosquitto_loop_misc(mosq);
-			if (ret)
-				mylog(LOG_ERR, "mosquitto_loop_misc: %s", mosquitto_strerror(ret));
-			if (mosquitto_want_write(mosq)) {
-				ret = mosquitto_loop_write(mosq, 1);
-				if (ret)
-					mylog(LOG_ERR, "mosquitto_loop_write: %s", mosquitto_strerror(ret));
-			}
-		}
+		if (ret >= 0)
+			libe_flush();
 	}
 
 	/* close all IIO */
@@ -866,9 +883,11 @@ int main(int argc, char *argv[])
 #if 0
 	send_self_sync(mosq, mqtt_qos);
 	while (!ready) {
-		ret = mosquitto_loop(mosq, 10, 1);
-		if (ret < 0)
-			mylog(LOG_ERR, "mosquitto_loop: %s", mosquitto_strerror(ret));
+		mqtt_update_flags(mosq);
+		libt_flush();
+		ret = libe_wait(libt_get_waittime());
+		if (ret >= 0)
+			libe_flush();
 	}
 #endif
 #if 0

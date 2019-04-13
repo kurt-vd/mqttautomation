@@ -660,8 +660,8 @@ int main(int argc, char *argv[])
 
 	/* core loop */
 	while (1) {
-		mosq_update_flags();
 		libt_flush();
+		mosq_update_flags();
 		ret = libe_wait(libt_get_waittime());
 		if (ret >= 0)
 			libe_flush();

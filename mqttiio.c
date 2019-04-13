@@ -265,6 +265,7 @@ struct iioel {
 	char *name;
 	int index;
 	int location;
+	int enabled;
 	int le;
 	int sign;
 	int bitsused;
@@ -316,6 +317,8 @@ static void iiodev_data(int fd, void *dat)
 		mylog(LOG_INFO, "read %u/%u from /dev/%s", ret, dev->datsize, dev->name);
 
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
+		if (!el->enabled)
+			continue;
 		requiredsize = el->location + el->bytesused;
 		if (dev->olddatvalid >= requiredsize && newdatvalid >= requiredsize &&
 				!memcmp(dev->dat+el->location, dev->olddat+el->location, el->bytesused))
@@ -518,6 +521,10 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 	prop = prop_read("/sys/bus/iio/devices/%s/scan_elements/in_%s_index", dev->name, el->name);
 	el->index = strtoul(prop, NULL, 0);
 
+	/* read enable */
+	prop = prop_read("/sys/bus/iio/devices/%s/scan_elements/in_%s_en", dev->name, el->name);
+	el->enabled = strtoul(prop, NULL, 0);
+
 	/* decode type */
 	prop = prop_read("/sys/bus/iio/devices/%s/scan_elements/in_%s_type", dev->name, el->name);
 	char le, sign;
@@ -716,6 +723,8 @@ done_device: ;
 		for (el = dev->els; el < dev->els+dev->nels; ++el) {
 			int mod;
 
+			if (!el->enabled)
+				continue;
 			mod = dev->datsize % el->bytesused;
 			if (mod)
 				dev->datsize += el->bytesused - mod;

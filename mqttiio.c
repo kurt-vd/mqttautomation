@@ -329,8 +329,7 @@ static void iiodev_data(int fd, void *dat)
 				 */
 				continue;
 			payload = "";
-			goto payload_ready;
-		}
+		} else
 		switch (el->bytesused) {
 		case 1: {
 			val32 = dev->dat[el->location];
@@ -384,7 +383,6 @@ static void iiodev_data(int fd, void *dat)
 
 				sprintf(longbuf, "%llu", val64);
 				payload = longbuf;
-				goto payload_ready;
 			} else
 			if (!el->sign)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
@@ -397,7 +395,6 @@ static void iiodev_data(int fd, void *dat)
 		}
 
 		valf *= el->si_mult;
-payload_ready:
 		nitems = 0;
 		if (nomqtt) {
 			if (fabs(el->oldvalue - valf) < el->hyst)
@@ -420,7 +417,7 @@ payload_ready:
 			/* test against hysteresis */
 			if (fabs(it->oldvalue - valf) < it->hyst)
 				continue;
-			pubitem(it, mydtostr_align(valf, it->hyst));
+			pubitem(it, payload ?: mydtostr_align(valf, it->hyst));
 			it->oldvalue = valf;
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {

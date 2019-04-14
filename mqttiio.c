@@ -209,6 +209,7 @@ static void pubitem(struct item *it, const char *payload)
 }
 
 static void link_item(struct item *it);
+static void scan_device(const char *devname);
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
 	int forme;
@@ -224,6 +225,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		if (!strncmp(msg->topic+7, NAME "/", namelen+1)) {
 			if (!strcmp(msg->topic+7+namelen+1, "loglevel"))
 				mysetloglevelstr(msg->payload);
+			else if (!strcmp(msg->topic+7+namelen+1, "dev"))
+				scan_device(msg->payload);
 		}
 	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		dev = strtok(msg->payload ?: "", " \t");

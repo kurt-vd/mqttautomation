@@ -289,9 +289,17 @@ static struct iiodev *iiodevs;
 /* round/align to @align */
 const char *mydtostr_align(double d, double align)
 {
+	if (isnan(d))
+		return "";
 	if (align > 0)
 		d -= fmod(d, align);
 	return mydtostr(d);
+}
+const char *mydtostr_align2(double d, double align)
+{
+	if (isnan(d))
+		return mydtostr(d);
+	return mydtostr_align(d, align);
 }
 
 static void iiodev_data(int fd, void *dat)

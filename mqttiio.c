@@ -949,6 +949,9 @@ int main(int argc, char *argv[])
 	}
 
 	/* terminate */
+	if (nomqtt)
+		return 0;
+
 	send_self_sync(mosq, mqtt_qos);
 	while (!ready) {
 		mqtt_update_flags(mosq);

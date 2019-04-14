@@ -216,9 +216,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	char *dev, *el;
 	struct item *it;
 
-	/*if (is_self_sync(msg)) {
+	if (is_self_sync(msg)) {
 		ready = 1;
-	} else */if (!strcmp(msg->topic, "tools/loglevel")) {
+	} else if (!strcmp(msg->topic, "tools/loglevel")) {
 		mysetloglevelstr(msg->payload);
 	} else if (!strncmp(msg->topic, "config/", 7)) {
 		int namelen = strlen(NAME);

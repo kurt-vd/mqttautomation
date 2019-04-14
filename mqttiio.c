@@ -16,6 +16,7 @@
 #include <glob.h>
 #include <getopt.h>
 #include <syslog.h>
+#include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <mosquitto.h>
 
@@ -780,6 +781,26 @@ static void mqtt_maintenance(void *dat)
 	libt_add_timeout(2.3, mqtt_maintenance, dat);
 }
 
+static void signalrecvd(int fd, void *dat)
+{
+	int ret;
+	struct signalfd_siginfo sfdi;
+
+	for (;;) {
+		ret = read(fd, &sfdi, sizeof(sfdi));
+		if (ret < 0 && errno == EAGAIN)
+			break;
+		if (ret < 0)
+			mylog(LOG_ERR, "read signalfd: %s", ESTR(errno));
+		switch (sfdi.ssi_signo) {
+		case SIGTERM:
+		case SIGINT:
+			sigterm = 1;
+			break;
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int opt, ret;
@@ -855,11 +876,24 @@ int main(int argc, char *argv[])
 		libe_add_fd(mosquitto_socket(mosq), mqtt_fd_ready, mosq);
 	}
 
+	/* prepare signalfd */
+	sigset_t sigmask;
+	int sigfd;
+
+	sigfillset(&sigmask);
+
+	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0)
+		mylog(LOG_ERR, "sigprocmask: %s", ESTR(errno));
+	sigfd = signalfd(-1, &sigmask, SFD_NONBLOCK | SFD_CLOEXEC);
+	if (sigfd < 0)
+		mylog(LOG_ERR, "signalfd failed: %s", ESTR(errno));
+	libe_add_fd(sigfd, signalrecvd, NULL);
+
 	/* prepare epoll */
 	scan_iio(0);
 
 	/* core loop */
-	while (1) {
+	while (!sigterm) {
 		libt_flush();
 		mqtt_update_flags(mosq);
 		ret = libe_wait(libt_get_waittime());
@@ -875,7 +909,6 @@ int main(int argc, char *argv[])
 		mosquitto_publish(mosq, 0, it->topic, 0, NULL, mqtt_qos, 1);
 
 	/* terminate */
-#if 0
 	send_self_sync(mosq, mqtt_qos);
 	while (!ready) {
 		mqtt_update_flags(mosq);
@@ -884,7 +917,6 @@ int main(int argc, char *argv[])
 		if (ret >= 0)
 			libe_flush();
 	}
-#endif
 #if 0
 	/* cleanup */
 	mosquitto_disconnect(mosq);

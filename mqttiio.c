@@ -91,6 +91,7 @@ struct item {
 	int topiclen;
 	char *device;
 	char *element;
+	const struct iioel *iio; /* abstract pointer, for quick compare */
 
 	double hyst;
 	double oldvalue;
@@ -207,7 +208,7 @@ static void pubitem(struct item *it, const char *payload)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
 
-static void pubinitial(struct item *it);
+static void link_item(struct item *it);
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
 	int forme;
@@ -218,6 +219,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		ready = 1;
 	} else */if (!strcmp(msg->topic, "tools/loglevel")) {
 		mysetloglevelstr(msg->payload);
+	} else if (!strncmp(msg->topic, "config/", 7)) {
+		int namelen = strlen(NAME);
+		if (!strncmp(msg->topic+7, NAME "/", namelen+1)) {
+			if (!strcmp(msg->topic+7+namelen+1, "loglevel"))
+				mysetloglevelstr(msg->payload);
+		}
 	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		dev = strtok(msg->payload ?: "", " \t");
 		el = strtok(NULL, " \t");
@@ -243,7 +250,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		if (it->element)
 			free(it->element);
 		it->element = strdup(el);
-		pubinitial(it);
+		link_item(it);
 	}
 }
 
@@ -256,7 +263,6 @@ struct iiodev {
 	int fd;
 	char *name;
 	char *hname; /* /name property */
-	int dirty;
 	uint8_t *dat;
 	uint8_t *olddat;
 	int datsize;
@@ -286,6 +292,7 @@ struct iioel {
 
 static struct iiodev *iiodevs;
 
+static void remove_iio(struct iiodev *dev);
 /* round/align to @align */
 const char *mydtostr_align(double d, double align)
 {
@@ -319,9 +326,11 @@ static void iiodev_data(int fd, void *dat)
 		return;
 	if (ret < 0)
 		mylog(LOG_ERR, "read %u from /dev/%s: %s", dev->datsize, dev->name, ESTR(errno));
-	if (!ret)
-		/* TODO: recover, close in runtime */
-		mylog(LOG_ERR, "/dev/%s eof", dev->name);
+	if (!ret) {
+		mylog(LOG_WARNING, "/dev/%s %s eof", dev->name, dev->hname);
+		remove_iio(dev);
+		return;
+	}
 	if (newdatvalid != dev->olddatvalid)
 		mylog(LOG_INFO, "read %u/%u from /dev/%s", ret, dev->datsize, dev->name);
 
@@ -410,23 +419,19 @@ static void iiodev_data(int fd, void *dat)
 		valf *= el->si_mult;
 		nitems = 0;
 		if (nomqtt) {
-			if (fabs(el->oldvalue - valf) < el->hyst)
+			if ((isnan(el->oldvalue) && isnan(valf)) || fabs(el->oldvalue - valf) < el->hyst)
 				;
 			else {
-				printf("%s %s: %s\n", dev->hname, el->name, payload ?: mydtostr_align(valf, el->hyst));
+				printf("%s %s: %s\n", dev->hname, el->name, payload ?: mydtostr_align2(valf, el->hyst));
 				el->oldvalue = valf;
 			}
 			continue;
 		}
 
 		for (it = items; it; it = it->next) {
-			if (strcmp(it->device, dev->hname) ||
-					strcmp(it->element, el->name))
+			if (it->iio != el)
 				continue;
 			++nitems;
-			/* inherit hysteris if not set */
-			if (isnan(it->hyst))
-				it->hyst = el->hyst;
 			/* test against hysteresis */
 			if (fabs(it->oldvalue - valf) < it->hyst)
 				continue;
@@ -448,39 +453,6 @@ static void iiodev_data(int fd, void *dat)
 	dev->olddatvalid = newdatvalid;
 	if (!nomqtt)
 		fflush(stdout);
-}
-
-static struct iiodev *find_iiodev(const char *devname);
-static void pubinitial(struct item *it)
-{
-	struct iiodev *dev;
-	struct iioel *el;
-
-	dev = find_iiodev(it->device);
-	if (!dev)
-		return;
-	for (el = dev->els; el < dev->els+dev->nels; ++el) {
-		if (!strcmp(el->name, it->element)) {
-			if (isnan(it->hyst))
-				it->hyst = el->hyst;
-			if (isnan(el->oldvalue))
-				/* don't publish yet */
-			it->oldvalue = el->oldvalue;
-			pubitem(it, mydtostr_align(el->oldvalue, it->hyst));
-			return;
-		}
-	}
-}
-
-static struct iiodev *find_iiodev(const char *devname)
-{
-	struct iiodev *iio;
-
-	for (iio = iiodevs; iio; iio = iio->next) {
-		if (!strcmp(iio->name, devname))
-			return iio;
-	}
-	return NULL;
 }
 
 static int elementcmp(const void *va, const void *vb)
@@ -568,55 +540,116 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 	el->oldvalue = NAN;
 }
 
-static void scan_iio(int destroy)
+/* link iioel to item */
+static void link_element(const struct iioel *el, struct item *it)
 {
-	glob_t devs = {}, els = {};
-	int j, fd, ret;
+	/* link */
+	it->iio = el;
+	/* inherit hysteris if not set */
+	if (isnan(it->hyst))
+		it->hyst = el->hyst;
+	if (!isnan(it->oldvalue) || !isnan(el->oldvalue)) {
+		it->oldvalue = el->oldvalue;
+		pubitem(it, mydtostr_align(it->oldvalue, it->hyst));
+	}
+}
+
+/* link existing items to new iioel */
+static void link_elements(struct iiodev *dev, struct iioel *el)
+{
+	struct item *it;
+
+	if (!el->enabled)
+		/* do not link anything */
+		return;
+	for (it = items; it; it = it->next) {
+		/* match device name */
+		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+			continue;
+		/* match element */
+		if (strcmp(it->element, el->name))
+			continue;
+		link_element(el, it);
+	}
+}
+
+/* link existing iioelements to new item */
+static void link_item(struct item *it)
+{
+	struct iiodev *dev;
+	int j;
+
+	for (dev = iiodevs; dev; dev = dev->next) {
+		/* match device name */
+		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+			continue;
+		for (j = 0; j < dev->nels; ++j) {
+			if (strcmp(it->element, dev->els[j].name))
+				continue;
+			link_element(&dev->els[j], it);
+			return;
+		}
+	}
+	/* nothing found */
+	it->iio = NULL;
+	if (!isnan(it->oldvalue)) {
+		it->oldvalue = NAN;
+		pubitem(it, NULL);
+	}
+}
+
+static void remove_iio(struct iiodev *dev)
+{
+	struct iioel *el;
+	struct item *it;
+
+	mylog(LOG_INFO, "remove %s", dev->name);
+	/* unlink from linked list */
+	if (dev->next)
+		dev->next->prev = dev->prev;
+	if (dev->prev)
+		dev->prev->next = dev->next;
+	/* cleanup elements */
+	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
+		free(el->name);
+		free(el);
+		/* unlink items */
+		for (it = items; it; it = it->next) {
+			if (it->iio == el) {
+				it->iio = NULL;
+				if (!isnan(it->oldvalue)) {
+					it->oldvalue = NAN;
+					pubitem(it, NULL);
+				}
+			}
+		}
+	}
+	/* cleanup */
+	libe_remove_fd(dev->fd);
+	close(dev->fd);
+	free(dev->olddat);
+	free(dev->dat);
+	free(dev->hname);
+	free(dev->name);
+	free(dev);
+}
+
+static void scan_device(const char *devname)
+{
+	glob_t els = {};
+	int j, ret;
 	struct iiodev *dev;
 	struct iioel *el;
 	static char filename[2048];
-	char *devname, *humanname;
+	const char *humanname;
 
-	/* clean dirty */
-	for (dev = iiodevs; dev; dev = dev->next)
-		dev->dirty = 0;
+	for (dev = iiodevs; dev; dev = dev->next) {
+		if (!strcmp(devname, dev->name))
+			break;
+	}
 
-	ret = glob("/dev/iio:device*", 0, NULL, &devs);
-	if (ret == GLOB_NOMATCH)
-		goto done_device;
-	if (ret)
-		mylog(LOG_ERR, "glob devices: %s", ESTR(errno));
-	/* open new devices */
-	for (j = 0; j < devs.gl_pathc; ++j) {
-		dev = find_iiodev(devs.gl_pathv[j]+5);
-		if (dev) {
-			dev->dirty = 1;
-			continue;
-		}
-		if (destroy)
-			continue;
-		mylog(LOG_INFO, "probe %s", devs.gl_pathv[j]);
-		/* device name */
-		devname = devs.gl_pathv[j]+5;
-		/* find human name */
-		sprintf(filename, "/sys/bus/iio/devices/%s/name", devname);
-		fd = ret = open(filename, O_RDONLY);
-		if (fd < 0 && errno != ENOENT)
-			humanname = devname;
-		else if (fd < 0)
-			mylog(LOG_ERR, "open %s: %s", filename, ESTR(errno));
-		else {
-			static char hname[128];
-
-			ret = read(fd, hname, sizeof(hname)-1);
-			if (ret < 0)
-				mylog(LOG_ERR, "read %s: %s", filename, ESTR(errno));
-			close(fd);
-			hname[ret] = 0;
-			if (ret && hname[ret-1] == '\n')
-				hname[ret-1] = 0;
-			humanname = hname;
-		}
+	if (!dev) {
+		humanname = prop_read2(ENOENT, "/sys/bus/iio/device/%s/name", devname);
 
 		/* verify if iio device is buffered
 		 * I only handle buffered iio devices ...
@@ -626,8 +659,8 @@ static void scan_iio(int destroy)
 		if (access(filename, F_OK) < 0) {
 			if (errno != ENOENT && errno != ENOTDIR)
 				mylog(LOG_ERR, "access %s failed: %s", filename, ESTR(errno));
-			mylog(LOG_INFO, "%s (%s) is not buffered, skipping", devname, humanname);
-			continue;
+			mylog(LOG_INFO, "%s (%s) is not buffered, skipping", devname, humanname ?: "");
+			return;
 		}
 
 		/* create new device */
@@ -636,118 +669,110 @@ static void scan_iio(int destroy)
 			mylog(LOG_ERR, "malloc iiodev: %s", ESTR(errno));
 		memset(dev, 0, sizeof(*dev));
 		dev->name = strdup(devname);
-		dev->hname = strdup(humanname);
-		dev->dirty = 2;
+		dev->hname = strdup(humanname ?: devname);
 
 		/* open file */
-		dev->fd = open(devs.gl_pathv[j], O_RDONLY | O_NONBLOCK);
-		libe_add_fd(dev->fd, iiodev_data, dev);
-
-		mylog(LOG_INFO, "%s (%s) new device", devname, humanname);
-		/* insert in linked list */
+		char filename[128];
+		sprintf(filename, "/dev/%s", devname);
+		dev->fd = open(filename, O_RDONLY | O_NONBLOCK);
 		if (dev->fd < 0)
-			mylog(LOG_ERR, "open %s: %s", devs.gl_pathv[j], ESTR(errno));
+			mylog(LOG_ERR, "open %s: %s", devname, ESTR(errno));
+		libe_add_fd(dev->fd, iiodev_data, dev);
+		/* insert in linked list */
 		dev->next = iiodevs;
 		if (dev->next)
 			dev->next->prev = dev;
 		dev->prev = (struct iiodev *)&iiodevs; /* trickery */
 		iiodevs = dev;
-	}
-	globfree(&devs);
-done_device: ;
-
-	/* close obsolete devices */
-	struct iiodev *next;
-	for (dev = iiodevs; dev; dev = next) {
-		next = dev->next;
-		if (!dev->dirty || destroy) {
-			mylog(LOG_INFO, "remove %s", dev->name);
-			/* unlink from linked list */
-			if (dev->next)
-				dev->next->prev = dev->prev;
-			if (dev->prev)
-				dev->prev->next = dev->next;
-			/* cleanup elements */
-			for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
-				free(el->name);
-				free(el);
-			}
-			/* cleanup */
-			libe_remove_fd(dev->fd);
-			close(dev->fd);
-			free(dev->olddat);
-			free(dev->dat);
-			free(dev->hname);
-			free(dev->name);
-			free(dev);
-		}
+		mylog(LOG_INFO, "probed %s (%s)", devname, humanname);
 	}
 
 	/* grab scan elements for new devs */
-	int dirlen, devnamelen;
-	static const char dir[] = "/sys/bus/iio/devices/";
 	char *elname;
 
-	ret = glob("/sys/bus/iio/devices/iio:device*/scan_elements/in_*_en", 0, NULL, &els);
-	if (ret == GLOB_NOMATCH)
-		goto done_elements;
+	char pattern[128];
+	sprintf(pattern, "/sys/bus/iio/devices/%s/scan_elements/in_*_en", dev->name);
+	ret = glob(pattern, 0, NULL, &els);
+	if (ret == GLOB_NOMATCH) {
+		remove_iio(dev);
+		return;
+	}
 	if (ret)
 		mylog(LOG_ERR, "glob scan_elements: %s", ESTR(errno));
 
-	dirlen = strlen(dir);
-	for (dev = iiodevs; dev; dev = dev->next) {
-		if (dev->dirty != 2)
-			continue;
-		dev->dirty = 1;
-		devnamelen = strlen(dev->name);
-		/* find scan elements for this device */
-		for (j = 0; j < els.gl_pathc; ++j) {
-			if (strncmp(els.gl_pathv[j], dir, dirlen) ||
-					strncmp(els.gl_pathv[j]+dirlen, dev->name, devnamelen) ||
-					els.gl_pathv[j][dirlen+devnamelen] != '/')
-				/* other device */
-				continue;
-			elname = strrchr(els.gl_pathv[j], '/');
-			if (!elname)
-				continue;
-			/* skip '/in_' */
-			elname += 4;
-			/* pre-alloc room */
-			if (dev->nels+1 > dev->sels) {
-				dev->sels += 16;
-				dev->els = realloc(dev->els, dev->sels*sizeof(*dev->els));
-				if (!dev->els)
-					mylog(LOG_ERR, "realloc %i elements: %s", dev->sels, ESTR(errno));
-			}
-			el = dev->els+dev->nels++;
-			memset(el, 0, sizeof(*el));
-			/* fill element */
-			el->name = strndup(elname, strlen(elname)-3); /* strip _en from name */
-			load_element(dev, el);
-			mylog(LOG_INFO, "new channel (%s) %s:%s", dev->name, dev->hname, el->name);
-		}
-		/* sort by index */
-		qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);
-		/* determine locaion (offsets in the byte stream) */
-		for (el = dev->els; el < dev->els+dev->nels; ++el) {
-			int mod;
+	/* mark old elements inactive */
+	for (j = 0; j < dev->nels; ++j)
+		dev->els[j].enabled = 0;
 
-			if (!el->enabled)
-				continue;
-			mod = dev->datsize % el->bytesused;
-			if (mod)
-				dev->datsize += el->bytesused - mod;
-			el->location = dev->datsize;
-			dev->datsize += el->bytesused;
+	/* find scan elements for this device */
+	for (j = 0; j < els.gl_pathc; ++j) {
+		elname = strrchr(els.gl_pathv[j], '/');
+		if (!elname)
+			continue;
+		/* pre-alloc room */
+		if (dev->nels+1 > dev->sels) {
+			dev->sels += 16;
+			dev->els = realloc(dev->els, dev->sels*sizeof(*dev->els));
+			if (!dev->els)
+				mylog(LOG_ERR, "realloc %i elements: %s", dev->sels, ESTR(errno));
 		}
-		/* prepare read buffer */
-		dev->dat = malloc(dev->datsize);
-		dev->olddat = malloc(dev->datsize);
-		if (!dev->dat || !dev->olddat)
-			mylog(LOG_ERR, "alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
+		el = dev->els+dev->nels++;
+		memset(el, 0, sizeof(*el));
+		el->oldvalue = NAN;
+		/* fill element */
+		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
+		load_element(dev, el);
+		mylog(LOG_INFO, "new channel (%s) %s:%s", dev->name, dev->hname, el->name);
+		link_elements(dev, el);
 	}
+	/* sort by index */
+	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);
+	/* determine locaion (offsets in the byte stream) */
+	for (el = dev->els; el < dev->els+dev->nels; ++el) {
+		int mod;
+
+		if (!el->enabled) {
+			struct item *it;
+
+			/* publish lost items */
+			for (it = items; it; it = it->next) {
+				if (it->iio == el && !isnan(it->oldvalue)) {
+					it->oldvalue = NAN;
+					pubitem(it, NULL);
+				}
+			}
+			continue;
+		}
+		mod = dev->datsize % el->bytesused;
+		if (mod)
+			dev->datsize += el->bytesused - mod;
+		el->location = dev->datsize;
+		dev->datsize += el->bytesused;
+	}
+	/* prepare read buffer */
+	dev->dat = realloc(dev->dat, dev->datsize);
+	dev->olddat = realloc(dev->olddat, dev->datsize);
+	if (!dev->dat || !dev->olddat)
+		mylog(LOG_ERR, "(re)alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
+	dev->olddatvalid = 0;
 	globfree(&els);
-done_elements: ;
+}
+
+static void scan_all_devices(void)
+{
+	glob_t devs = {};
+	int ret, j;
+
+	ret = glob("/dev/iio:device*", 0, NULL, &devs);
+	if (ret == GLOB_NOMATCH)
+		return;
+	if (ret)
+		mylog(LOG_ERR, "glob /dev/iio:device* : %s", ESTR(errno));
+	/* open new devices */
+	for (j = 0; j < devs.gl_pathc; ++j)
+		scan_device(devs.gl_pathv[j]+5);
+
+	globfree(&devs);
 }
 
 static void mqtt_fd_ready(int fd, void *dat)
@@ -898,7 +923,7 @@ int main(int argc, char *argv[])
 	libe_add_fd(sigfd, signalrecvd, NULL);
 
 	/* prepare epoll */
-	scan_iio(0);
+	scan_all_devices();
 
 	/* core loop */
 	while (!sigterm) {
@@ -909,12 +934,16 @@ int main(int argc, char *argv[])
 			libe_flush();
 	}
 
-	/* close all IIO */
-	scan_iio(1);
+	/* stop listening to new input */
+	struct iiodev *dev;
+	for (dev = iiodevs; dev; dev = dev->next)
+		libe_remove_fd(dev->fd);
 
-	/* flush all data */
-	for (it = items; it; it = it->next)
+	/* erase all data */
+	for (it = items; it; it = it->next) {
+		it->iio = NULL; /* quick unlink */
 		mosquitto_publish(mosq, 0, it->topic, 0, NULL, mqtt_qos, 1);
+	}
 
 	/* terminate */
 	send_self_sync(mosq, mqtt_qos);

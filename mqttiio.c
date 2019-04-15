@@ -716,6 +716,7 @@ static void add_device(const char *devname)
 
 	/* grab scan elements for new devs */
 	char *elname;
+	struct item *it;
 
 	char pattern[128];
 	sprintf(pattern, "/sys/bus/iio/devices/%s/scan_elements/in_*_en", dev->name);
@@ -728,8 +729,18 @@ static void add_device(const char *devname)
 		mylog(LOG_ERR, "glob scan_elements: %s", ESTR(errno));
 
 	/* mark old elements inactive */
-	for (j = 0; j < dev->nels; ++j)
-		dev->els[j].enabled = 0;
+	for (el = dev->els; el < dev->els+dev->nels; ++el) {
+		/* publish lost items */
+		for (it = items; it; it = it->next) {
+			if (it->iio == el && !isnan(it->oldvalue)) {
+				it->oldvalue = NAN;
+				pubitem(it, NULL);
+				it->iio = NULL;
+			}
+		}
+		free(el->name);
+	}
+	dev->nels = 0;
 
 	/* find scan elements for this device */
 	for (j = 0; j < els.gl_pathc; ++j) {
@@ -750,7 +761,6 @@ static void add_device(const char *devname)
 		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
 		load_element(dev, el);
 		mylog(LOG_INFO, "new channel (%s) %s:%s", dev->name, dev->hname, el->name);
-		link_elements(dev, el);
 	}
 	/* sort by index */
 	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);
@@ -758,28 +768,20 @@ static void add_device(const char *devname)
 	for (el = dev->els; el < dev->els+dev->nels; ++el) {
 		int mod;
 
-		if (!el->enabled) {
-			struct item *it;
-
-			/* publish lost items */
-			for (it = items; it; it = it->next) {
-				if (it->iio == el && !isnan(it->oldvalue)) {
-					it->oldvalue = NAN;
-					pubitem(it, NULL);
-				}
-			}
+		if (!el->enabled)
+			/* disabled elements do not count */
 			continue;
-		}
 		mod = dev->datsize % el->bytesused;
 		if (mod)
 			dev->datsize += el->bytesused - mod;
 		el->location = dev->datsize;
 		dev->datsize += el->bytesused;
+		link_elements(dev, el);
 	}
 	/* prepare read buffer */
 	dev->dat = realloc(dev->dat, dev->datsize);
 	dev->olddat = realloc(dev->olddat, dev->datsize);
-	if (!dev->dat || !dev->olddat)
+	if (dev->datsize && (!dev->dat || !dev->olddat))
 		mylog(LOG_ERR, "(re)alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
 	dev->olddatvalid = 0;
 	globfree(&els);

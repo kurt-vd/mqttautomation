@@ -209,7 +209,8 @@ static void pubitem(struct item *it, const char *payload)
 }
 
 static void link_item(struct item *it);
-static void scan_device(const char *devname);
+static void add_device(const char *devname);
+static void remove_device(const char *devname);
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
 	int forme;
@@ -225,8 +226,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		if (!strncmp(msg->topic+7, NAME "/", namelen+1)) {
 			if (!strcmp(msg->topic+7+namelen+1, "loglevel"))
 				mysetloglevelstr(msg->payload);
-			else if (!strcmp(msg->topic+7+namelen+1, "dev"))
-				scan_device(msg->payload);
+			else if (!strcmp(msg->topic+7+namelen+1, "add"))
+				add_device(msg->payload);
+			else if (!strcmp(msg->topic+7+namelen+1, "remove"))
+				remove_device(msg->payload);
 		}
 	} else if (test_suffix(msg->topic, mqtt_suffix)) {
 		dev = strtok(msg->payload ?: "", " \t");
@@ -637,7 +640,24 @@ static void remove_iio(struct iiodev *dev)
 	free(dev);
 }
 
-static void scan_device(const char *devname)
+static void remove_device(const char *devname)
+{
+	struct iiodev *dev;
+
+	/* strip leading /dev/ */
+	if (!strncmp("/dev/", devname, 5))
+		devname += 5;
+
+	/* find device */
+	for (dev = iiodevs; dev; dev = dev->next) {
+		if (!strcmp(devname, dev->name))
+			break;
+	}
+	if (dev)
+		remove_iio(dev);
+}
+
+static void add_device(const char *devname)
 {
 	glob_t els = {};
 	int j, ret;
@@ -646,6 +666,10 @@ static void scan_device(const char *devname)
 	static char filename[2048];
 	const char *humanname;
 
+	/* strip leading /dev/ */
+	if (!strncmp("/dev/", devname, 5))
+		devname += 5;
+	/* find device */
 	for (dev = iiodevs; dev; dev = dev->next) {
 		if (!strcmp(devname, dev->name))
 			break;
@@ -773,7 +797,7 @@ static void scan_all_devices(void)
 		mylog(LOG_ERR, "glob /dev/iio:device* : %s", ESTR(errno));
 	/* open new devices */
 	for (j = 0; j < devs.gl_pathc; ++j)
-		scan_device(devs.gl_pathv[j]+5);
+		add_device(devs.gl_pathv[j]+5);
 
 	globfree(&devs);
 }

@@ -963,6 +963,9 @@ int main(int argc, char *argv[])
 			libe_flush();
 	}
 
+	if (nomqtt)
+		goto mqtt_done;
+
 	/* stop listening to new input */
 	struct iiodev *dev;
 	for (dev = iiodevs; dev; dev = dev->next)
@@ -975,9 +978,6 @@ int main(int argc, char *argv[])
 	}
 
 	/* terminate */
-	if (nomqtt)
-		return 0;
-
 	send_self_sync(mosq, mqtt_qos);
 	while (!ready) {
 		mqtt_update_flags(mosq);
@@ -992,5 +992,6 @@ int main(int argc, char *argv[])
 	mosquitto_destroy(mosq);
 	mosquitto_lib_cleanup();
 #endif
+mqtt_done:
 	return 0;
 }

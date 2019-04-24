@@ -100,6 +100,7 @@ struct item {
 struct item *items;
 
 /* MQTT iface */
+__attribute__((unused))
 static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const char *str)
 {
 	static const int logpri_map[] = {
@@ -918,7 +919,7 @@ int main(int argc, char *argv[])
 			mylog(LOG_ERR, "mosquitto_new failed: %s", ESTR(errno));
 		/* mosquitto_will_set(mosq, "TOPIC", 0, NULL, mqtt_qos, 1); */
 
-		mosquitto_log_callback_set(mosq, my_mqtt_log);
+		//mosquitto_log_callback_set(mosq, my_mqtt_log);
 		mosquitto_message_callback_set(mosq, my_mqtt_msg);
 
 		ret = mosquitto_connect(mosq, mqtt_host, mqtt_port, mqtt_keepalive);

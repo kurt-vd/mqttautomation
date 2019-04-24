@@ -32,7 +32,7 @@
 /* program options */
 static const char help_msg[] =
 	NAME ": bridge IIO into MQTT\n"
-	"usage:	" NAME " -d DEVICE [OPTIONS ...] [PATTERN] ...\n"
+	"usage:	" NAME " [OPTIONS ...] [PATTERN] ...\n"
 	"\n"
 	"Options\n"
 	" -V, --version		Show version\n"

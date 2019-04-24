@@ -495,6 +495,8 @@ static const char *prop_read2(int acceptable_errno, const char *fmt, ...)
 	/* null terminate */
 	value[ret] = 0;
 	free(filename);
+	if (ret && value[ret-1] == '\n')
+		value[--ret] = 0;
 	return value;
 }
 

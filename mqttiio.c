@@ -550,8 +550,9 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 }
 
 /* link iioel to item */
-static void link_element(const struct iioel *el, struct item *it)
+static void link_element(const struct iiodev *dev, const struct iioel *el, struct item *it)
 {
+	mylog(LOG_INFO, "link %s,%s to %s", dev->hname, el->name, it->topic);
 	/* link */
 	it->iio = el;
 	/* inherit hysteris if not set */
@@ -578,7 +579,7 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 		/* match element */
 		if (strcmp(it->element, el->name))
 			continue;
-		link_element(el, it);
+		link_element(dev, el, it);
 	}
 }
 
@@ -595,7 +596,7 @@ static void link_item(struct item *it)
 		for (j = 0; j < dev->nels; ++j) {
 			if (strcmp(it->element, dev->els[j].name))
 				continue;
-			link_element(&dev->els[j], it);
+			link_element(dev, &dev->els[j], it);
 			return;
 		}
 	}
@@ -680,6 +681,7 @@ static void add_device(const char *devname)
 
 	if (!dev) {
 		humanname = prop_read2(ENOENT, "/sys/bus/iio/device/%s/name", devname);
+		mylog(LOG_INFO, "add %s", devname);
 
 		/* verify if iio device is buffered
 		 * I only handle buffered iio devices ...
@@ -718,6 +720,7 @@ static void add_device(const char *devname)
 	}
 
 	/* grab scan elements for new devs */
+	mylog(LOG_INFO, "scan %s", devname);
 	char *elname;
 	struct item *it;
 
@@ -763,7 +766,7 @@ static void add_device(const char *devname)
 		/* fill element */
 		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
 		load_element(dev, el);
-		mylog(LOG_INFO, "new channel (%s) %s:%s", dev->name, dev->hname, el->name);
+		mylog(LOG_INFO, "new channel (%s) %s, %s", dev->name, dev->hname, el->name);
 	}
 	/* sort by index */
 	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);

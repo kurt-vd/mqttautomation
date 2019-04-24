@@ -680,8 +680,8 @@ static void add_device(const char *devname)
 	}
 
 	if (!dev) {
-		humanname = prop_read2(ENOENT, "/sys/bus/iio/device/%s/name", devname);
 		mylog(LOG_INFO, "add %s", devname);
+		humanname = prop_read2(ENOENT, "/sys/bus/iio/devices/%s/name", devname);
 
 		/* verify if iio device is buffered
 		 * I only handle buffered iio devices ...

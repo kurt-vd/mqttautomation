@@ -11,7 +11,7 @@
 
 #include "lib/libt.h"
 #include "rpnlogic.h"
-#include "sun.h"
+#include "astronomics.h"
 #include "common.h"
 
 static const struct rpn_el dummy = { .a = NULL, .d = NAN, };
@@ -625,11 +625,10 @@ static void rpn_do_sun(struct stack *st, struct rpn *me)
 	struct rpn_el *lon = rpn_pop1(st);
 	struct rpn_el *lat = rpn_pop1(st);
 
-	double incl, azm;
-	int ret;
+	double incl;
 
-	ret = sungetpos(time(NULL), lat->d, lon->d, &incl, &azm, NULL);
-	rpn_push(st, (ret >= 0) ? incl : NAN);
+	incl = sun_pos_strous(time(NULL), lat->d, lon->d);
+	rpn_push(st, incl);
 }
 
 /* flow control */

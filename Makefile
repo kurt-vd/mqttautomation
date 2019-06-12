@@ -44,7 +44,7 @@ mqttled: common.o lib/libt.o
 
 mqttlogic: LDLIBS+=-lm
 mqttlogic: common.o lib/libt.o lib/libe.o \
-	rpnlogic.o sunposition.o
+	rpnlogic.o astronomics.o
 
 mqttmaclight: common.o lib/libt.o
 
@@ -60,7 +60,7 @@ mqttsysfsrd: common.o lib/libt.o
 mqttteleruptor: common.o lib/libt.o
 
 rpntest: LDLIBS+=-lm
-rpntest: common.o lib/libt.o rpnlogic.o sunposition.o
+rpntest: common.o lib/libt.o rpnlogic.o astronomics.o
 
 testpoort: common.o lib/libt.o
 testteleruptor: common.o lib/libt.o

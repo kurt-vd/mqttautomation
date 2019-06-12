@@ -13,12 +13,18 @@ static inline double todeg(double rad)
 }
 
 static const time_t t_1jan2000_12h = 946728000;
+static const double J2000 = 2451545;
 double julian_day(time_t t)
 {
 	/* from wikipedia
 	 * https://en.wikipedia.org/wiki/Julian_day
 	 */
-	return 2451545 + (t-t_1jan2000_12h)/86400.0;
+	return J2000 + (t-t_1jan2000_12h)/86400.0;
+}
+
+time_t toepoch(double julianday)
+{
+	return (julianday - J2000)*86400 + t_1jan2000_12h;
 }
 
 struct sunpos sun_pos_strous(time_t t, double lat, double lon)

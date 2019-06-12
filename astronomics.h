@@ -16,6 +16,9 @@ struct sunpos {
 
 extern struct sunpos sun_pos_strous(time_t t, double lat, double lon);
 
+extern double julian_day(time_t t);
+extern time_t toepoch(double julian);
+
 #ifdef __cplusplus
 }
 #endif

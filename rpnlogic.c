@@ -625,10 +625,10 @@ static void rpn_do_sun(struct stack *st, struct rpn *me)
 	struct rpn_el *lon = rpn_pop1(st);
 	struct rpn_el *lat = rpn_pop1(st);
 
-	double incl;
+	struct sunpos pos;
 
-	incl = sun_pos_strous(time(NULL), lat->d, lon->d);
-	rpn_push(st, incl);
+	pos = sun_pos_strous(time(NULL), lat->d, lon->d);
+	rpn_push(st, pos.elevation);
 }
 
 /* flow control */

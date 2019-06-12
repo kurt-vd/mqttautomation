@@ -7,7 +7,14 @@
 extern "C" {
 #endif
 
-extern double sun_pos_strous(time_t t, double lat, double lon);
+struct sunpos {
+	double azimuth;
+	double elevation;
+	time_t sunrise, sunset;
+	time_t sunnoon;
+};
+
+extern struct sunpos sun_pos_strous(time_t t, double lat, double lon);
 
 #ifdef __cplusplus
 }

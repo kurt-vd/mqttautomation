@@ -70,11 +70,9 @@ struct sunpos sun_pos_strous(time_t t, double lat, double lon)
 	double Mx = fmod(M0 + M1 * Jx, 360);
 	double Lsunx = Mx + majorPI + 180;
 	double Jtransit = Jx + J1*sin(torad(Mx))+J2*sin(torad(2*Lsunx));
-	printf("%lf, %lf, %lf\n", J, Jx, Jtransit);
 #define h0 -0.83
 
 	double Ht = acos((sin(torad(h0))-sin(torad(lat))*sin(torad(delta)))/(cos(torad(lat))*cos(torad(delta))));
-	printf("Ht %lf\n", Ht);
 	double Jrise = Jtransit - (todeg(Ht)/360)*J3;
 	double Jset = Jtransit + (todeg(Ht)/360)*J3;
 

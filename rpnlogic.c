@@ -26,6 +26,7 @@ static struct rpn *rpn_create(void)
 	if (!rpn)
 		mylog(LOG_ERR, "malloc failed?");
 	memset(rpn, 0, sizeof(*rpn));
+	rpn->value = NAN;
 	return rpn;
 }
 

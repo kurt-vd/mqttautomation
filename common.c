@@ -130,6 +130,8 @@ const char *mydtostr(double d)
 	char *str;
 	int ptpresent = 0;
 
+	if (isnan(d))
+		return "";
 	sprintf(buf, "%lg", d);
 	for (str = buf; *str; ++str) {
 		if (*str == '.')

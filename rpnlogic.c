@@ -70,7 +70,10 @@ static inline int dblcmp(double a, double b, double diff)
 	else if (isnan(b))
 	       return 1;
 
-	if (fabs(2*(a-b)/(a+b)) < diff)
+	else if (fpclassify(a) == FP_ZERO && fpclassify(b) == FP_ZERO)
+		/* avoid /0 */
+		return 0;
+	else if (fabs(2*(a-b)/(a+b)) < diff)
 		return 0;
 	else if (a < b)
 		return -1;

@@ -19,7 +19,8 @@ struct rpn {
 	void *dat;
 	char *topic;
 	double value;
-	char *strvalue;
+	const char *strvalue;
+	char *constvalue;
 	int cookie;
 	struct rpn *rpn; /* cached rpn for flow control */
 	void (*timeout)(void *dat); /* scheduled timeout,

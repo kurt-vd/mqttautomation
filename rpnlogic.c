@@ -34,8 +34,8 @@ static void rpn_free(struct rpn *rpn)
 {
 	if (rpn->topic)
 		free(rpn->topic);
-	if (rpn->strvalue)
-		free(rpn->strvalue);
+	if (rpn->constvalue)
+		free(rpn->constvalue);
 	if (rpn->timeout)
 		libt_remove_timeout(rpn->timeout, rpn);
 	free(rpn);
@@ -344,7 +344,7 @@ static void rpn_do_gt(struct stack *st, struct rpn *me)
 /* generic */
 static void rpn_do_const(struct stack *st, struct rpn *me)
 {
-	rpn_push_str(st, me->strvalue, me->value);
+	rpn_push_str(st, me->constvalue, me->value);
 }
 
 static void rpn_do_env(struct stack *st, struct rpn *me)
@@ -900,7 +900,7 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 				tok[strlen(tok)-1] = 0;
 			++tok;
 			rpn->run = rpn_do_const;
-			rpn->strvalue = strdup(tok);
+			rpn->constvalue = strdup(tok);
 			rpn->value = mystrtod(tok, NULL);
 
 		} else if (strchr("$>=", *tok) && tok[1] == '{' && tok[strlen(tok)-1] == '}') {
@@ -924,7 +924,7 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 		} else if ((constant = do_constant(tok)) != NULL) {
 			rpn->run = rpn_do_const;
 			rpn->value = constant->value;
-			rpn->strvalue = strdup(tok);
+			rpn->constvalue = strdup(tok);
 
 		} else {
 			mylog(LOG_INFO, "unknown token '%s'", tok);

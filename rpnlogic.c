@@ -474,25 +474,29 @@ static void rpn_do_debounce2(struct stack *st, struct rpn *me)
 {
 	struct rpn_el *delay = rpn_pop1(st);
 	struct rpn_el *input = rpn_pop1(st);
-	double inval = input->d;
 
 	/* this works like a debounce, but emits the first event immediately
 	 * it is usefull to throttle changes
 	 * bit 0: set when throttling
-	 * bit 1: last sampled real value
 	 */
-	if (me->cookie & 1)
-		inval = me->value;
-	else if (dblcmp(inval, me->value, 0.001)) {
-		/* input changed from last value */
-		/* schedule timeout */
+	if ((isnan(input->d) && !strcmp(input->a ?: "", me->strvalue ?: "")) ||
+			(!isnan(input->d) && !dblcmp(input->d, me->value, 0.001))) {
+		/* equal value, no throttling */
+
+	} else if (!(me->cookie & 1)) {
+		/* throttle */
+		me->cookie |= 1;
+		/* abuse on_delay to clear the flag */
 		libt_add_timeout(delay->d, on_delay, me);
 		me->timeout = on_delay;
-		me->cookie |= 1;
-		me->value = inval;
+		/* store value-to-be-propagated */
+		me->value = input->d;
+		if (me->constvalue)
+			free(me->constvalue);
+		me->strvalue = me->constvalue = input->a ? strdup(input->a) : NULL;
 	}
 	/* write output to stack */
-	rpn_push(st, inval);
+	rpn_push_str(st, me->strvalue, me->value);
 }
 
 static void rpn_do_autoreset(struct stack *st, struct rpn *me)

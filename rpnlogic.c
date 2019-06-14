@@ -65,6 +65,11 @@ static inline int dblcmp(double a, double b, double diff)
 {
 	if (isnan(a) && isnan(b))
 		return 0;
+	else if (isnan(a))
+	       return -1;
+	else if (isnan(b))
+	       return 1;
+
 	if (fabs(2*(a-b)/(a+b)) < diff)
 		return 0;
 	else if (a < b)

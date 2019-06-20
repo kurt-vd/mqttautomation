@@ -656,6 +656,18 @@ static void rpn_do_sun3(struct stack *st, struct rpn *me)
 	rpn_push(st, pos.elevation);
 }
 
+static void rpn_do_azimuth3(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *t = rpn_pop1(st);
+	struct rpn_el *lon = rpn_pop1(st);
+	struct rpn_el *lat = rpn_pop1(st);
+
+	struct sunpos pos;
+
+	pos = sun_pos_strous(t->d, lat->d, lon->d);
+	rpn_push(st, pos.azimuth);
+}
+
 /* flow control */
 static void rpn_do_if(struct stack *st, struct rpn *me)
 {
@@ -809,6 +821,7 @@ static struct lookup {
 
 	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
 	{ "sun3", rpn_do_sun3, },
+	{ "azimuth3", rpn_do_azimuth3, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

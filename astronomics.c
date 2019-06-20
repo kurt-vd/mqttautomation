@@ -64,7 +64,7 @@ struct sunpos sun_pos_strous(time_t t, double lat, double lon)
 
 	struct sunpos result = {
 		.elevation = todeg(alt),
-		.azimuth = todeg(az),
+		.azimuth = fmod(todeg(az)+180, 360),
 	};
 
 #define J0 0.0009

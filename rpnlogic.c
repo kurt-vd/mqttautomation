@@ -646,9 +646,9 @@ static void rpn_do_sun(struct stack *st, struct rpn *me)
 
 static void rpn_do_sun3(struct stack *st, struct rpn *me)
 {
-	struct rpn_el *t = rpn_pop1(st);
 	struct rpn_el *lon = rpn_pop1(st);
 	struct rpn_el *lat = rpn_pop1(st);
+	struct rpn_el *t = rpn_pop1(st);
 
 	struct sunpos pos;
 
@@ -658,9 +658,9 @@ static void rpn_do_sun3(struct stack *st, struct rpn *me)
 
 static void rpn_do_azimuth3(struct stack *st, struct rpn *me)
 {
-	struct rpn_el *t = rpn_pop1(st);
 	struct rpn_el *lon = rpn_pop1(st);
 	struct rpn_el *lat = rpn_pop1(st);
+	struct rpn_el *t = rpn_pop1(st);
 
 	struct sunpos pos;
 

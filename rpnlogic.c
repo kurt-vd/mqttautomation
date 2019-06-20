@@ -808,7 +808,7 @@ static struct lookup {
 	{ "strftime", rpn_do_strftime, },
 
 	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
-	{ "sun3", rpn_do_sun3, RPNFN_WALLTIME, },
+	{ "sun3", rpn_do_sun3, },
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

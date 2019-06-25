@@ -553,10 +553,7 @@ static void rpn_do_isnew(struct stack *st, struct rpn *me)
 		st->errnum = ECANCELED;
 		return;
 	}
-	if (!rpn_env_isnew()) {
-		rpn_pop1(st);
-		rpn_push_el(st, &dummy);
-	}
+	rpn_push(st, rpn_env_isnew());
 }
 
 /* date/time functions */

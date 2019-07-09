@@ -891,11 +891,12 @@ static const char digits[] = "0123456789";
 int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 {
 	char *savedstr;
-	char *tok;
+	char *tok, *endp;
 	int result;
 	struct rpn *last = NULL, *rpn, **localproot;
 	const struct lookup *lookup;
 	const struct constant *constant;
+	double tmp;
 
 	/* find current 'last' rpn */
 	for (last = *proot; last && last->next; last = last->next);
@@ -905,9 +906,10 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 	for (tok = mystrtok(savedstr, " \t"), result = 0; tok;
 			tok = mystrtok(NULL, " \t"), ++result) {
 		rpn = rpn_create();
-		if (strchr(digits, *tok) || (tok[1] && strchr("+-", *tok) && strchr(digits, tok[1]))) {
+		tmp = mystrtod(tok, &endp);
+		if ((endp > tok) && !*endp) {
 			rpn->run = rpn_do_const;
-			rpn->value = mystrtod(tok, NULL);
+			rpn->value = tmp;
 
 		} else if (*tok == '"') {
 			if (tok[strlen(tok)-1] == '"')

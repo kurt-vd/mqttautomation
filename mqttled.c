@@ -85,6 +85,7 @@ struct item {
 	char *name;
 	char *sysfsdir;
 	int maxvalue;
+	int initialized;
 };
 
 struct item *items;
@@ -209,6 +210,7 @@ static int test_nodename(const char *nodename)
 	return !strcmp(mynodename, nodename);
 }
 
+static void led_initial_value(void *dat);
 static struct item *get_item(const char *topic, const char *suffix, int create)
 {
 	struct item *it;
@@ -255,6 +257,7 @@ static void drop_item(struct item *it)
 {
 	int ret;
 
+	libt_remove_timeout(led_initial_value, it);
 	/* remove from list */
 	if (it->prev)
 		it->prev->next = it->next;
@@ -306,6 +309,8 @@ static void setled(struct item *it, const char *newvalue, int republish)
 	int ret, newval;
 	char buf[16], *endp;
 
+	if (!it->initialized)
+		libt_remove_timeout(led_initial_value, it);
 	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
 	if (!it->sysfsdir && !strcmp(it->name, "...")) {
@@ -347,12 +352,27 @@ static void setled(struct item *it, const char *newvalue, int republish)
 		free(dupstr);
 	}
 
-	if (republish && mqtt_write_suffix) {
+	if (!it->initialized || (republish && mqtt_write_suffix)) {
+		it->initialized = 1;
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
 		ret = mosquitto_publish(mosq, NULL, it->topic, strlen(newvalue ?: ""), newvalue, mqtt_qos, 1);
 		if (ret < 0)
 			mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 	}
+}
+
+static void led_initial_value(void *dat)
+{
+	struct item *it = dat;
+	int ret;
+
+	/* emit empty value on MQTT
+	 * this does not hurt the real output, but may trigger
+	 * other logic to re-send
+	 */
+	ret = mosquitto_publish(mosq, NULL, it->topic, 0, NULL, mqtt_qos, 1);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -388,6 +408,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* finalize */
 		mylog(LOG_INFO, "new led spec for %s: '%s'", it->topic, ledname);
 		init_led(it);
+		if (!it->initialized)
+			libt_add_timeout(0.5, led_initial_value, it);
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */

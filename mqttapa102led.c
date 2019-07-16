@@ -99,6 +99,7 @@ struct item {
 	int index;
 	int rgb;
 	int republish;
+	int initialized;
 };
 
 struct item *items;
@@ -214,11 +215,14 @@ static const struct {
 };
 #define NCOLORS	(sizeof(colormap)/sizeof(colormap[0]))
 
+static void led_initial_value(void *);
 static void setled(struct item *it, const char *newvalue, int republish)
 {
 	int ret, newval, j;
 	char *endp;
 
+	if (!it->initialized)
+		libt_remove_timeout(led_initial_value, it);
 	newval = it->rgb;
 	if (!newvalue || !*newvalue)
 		newval = 0;
@@ -245,12 +249,26 @@ static void setled(struct item *it, const char *newvalue, int republish)
 			/* turn black */
 			newval = 0;
 	}
-	if (newval != it->rgb) {
+	if (!it->initialized || (newval != it->rgb)) {
 		it->rgb = newval;
+		it->initialized = 1;
 		it->republish = republish && mqtt_write_suffix;
 		if (!spi_scheduled)
 			libt_add_timeout(0.001, spi_write_apa102, NULL);
 	}
+}
+static void led_initial_value(void *dat)
+{
+	struct item *it = dat;
+	int ret;
+
+	/* emit empty value on MQTT
+	 * this does not hurt the real output, but may trigger
+	 * other logic to re-send
+	 */
+	ret = mosquitto_publish(mosq, NULL, it->topic, 0, NULL, mqtt_qos, 1);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
 
 /* MQTT iface */
@@ -349,6 +367,7 @@ static void drop_item(struct item *it)
 {
 	int ret;
 
+	libt_remove_timeout(led_initial_value, it);
 	/* remove from list */
 	if (it->prev)
 		it->prev->next = it->next;
@@ -399,6 +418,8 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		mylog(LOG_INFO, "new apa102 led spec for %s: %i", it->topic, it->index);
 		/* clear cached ledcount */
 		led_count = 0;
+		if (!it->initialized)
+			libt_add_timeout(0.5, led_initial_value, it);
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */

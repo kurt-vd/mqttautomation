@@ -300,8 +300,6 @@ static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 	v = rpn_pop1(st)->d;
 
 	now = libt_now();
-	/* round down to nearest interval */
-	next = now - fmod(now, period) + period;
 
 	if (avg->started) {
 		avg->sum += avg->last_in;
@@ -314,7 +312,9 @@ static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 			libt_remove_timeout(on_avgtime_period, me);
 
 		} else {
-			libt_add_timeouta(next, on_avgtime_period, me);
+			/* schedule summary on next period */
+			next = period - fmod(walltime(), period);
+			libt_add_timeout(next, on_avgtime_period, me);
 			me->timeout = on_avgtime_period;
 		}
 	} else {
@@ -875,7 +875,7 @@ static struct lookup {
 	{ "hyst2", rpn_do_hyst2, },
 	{ "hyst", rpn_do_hyst2, },
 	{ "throttle", rpn_do_debounce2, },
-	{ "avgtime", rpn_do_avgtime, 0, sizeof(struct avgtime), },
+	{ "avgtime", rpn_do_avgtime, RPNFN_WALLTIME, sizeof(struct avgtime), },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

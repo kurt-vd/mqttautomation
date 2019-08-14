@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include <unistd.h>
 #define SYSLOG_NAMES
@@ -205,4 +206,13 @@ int is_self_sync(const struct mosquitto_message *msg)
 {
 	return !strcmp(msg->topic, selfsynctopic) &&
 		!strcmp(myuuid, msg->payload ?: "");
+}
+
+/* time function */
+double walltime(void)
+{
+	struct timeval t;
+	if (0 != gettimeofday(&t, 0))
+		exit(1);
+	return t.tv_sec + ((t.tv_usec % 1000000) / 1e6);
 }

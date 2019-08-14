@@ -24,6 +24,12 @@ struct mosquitto;
 extern int is_self_sync(const struct mosquitto_message *msg);
 extern void send_self_sync(struct mosquitto *mosq, int qos);
 
+/* walltime as double.
+ * This is different from libt_now() since that is most
+ * probable based on monotonic time
+ */
+extern double walltime(void);
+
 #ifdef __cplusplus
 }
 #endif

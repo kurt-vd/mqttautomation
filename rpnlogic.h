@@ -25,6 +25,8 @@ struct rpn {
 	struct rpn *rpn; /* cached rpn for flow control */
 	void (*timeout)(void *dat); /* scheduled timeout,
 				       usefull to free resources */
+	const struct lookup *lookup;
+	/* ... private date to come */
 };
 
 /* functions */

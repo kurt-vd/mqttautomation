@@ -30,8 +30,25 @@ static struct rpn *rpn_create(void)
 	return rpn;
 }
 
+static inline void *rpn_priv(struct rpn *rpn)
+{
+	return rpn+1;
+}
+
+/* grow private date of rpn */
+static struct rpn *rpn_grow(struct rpn *rpn, int privsize)
+{
+	rpn = realloc(rpn, sizeof(*rpn) + privsize);
+	if (!rpn)
+		mylog(LOG_ERR, "realloc rpn %lu", (long)sizeof(*rpn)+privsize);
+	memset(rpn+1, 0, privsize);
+	return rpn;
+}
+
+static void free_lookup(struct rpn *rpn);
 static void rpn_free(struct rpn *rpn)
 {
+	free_lookup(rpn);
 	if (rpn->topic)
 		free(rpn->topic);
 	if (rpn->constvalue)
@@ -759,6 +776,8 @@ static struct lookup {
 	const char *str;
 	void (*run)(struct stack *, struct rpn *);
 	int flags;
+	int privsize;
+	void (*free)(struct rpn *);
 } const lookups[] = {
 	{ "+", rpn_do_plus, },
 	{ "-", rpn_do_minus, },
@@ -836,6 +855,12 @@ static const struct lookup *do_lookup(const char *tok)
 			return lookup;
 	}
 	return NULL;
+}
+
+static void free_lookup(struct rpn *rpn)
+{
+	if (rpn->lookup && rpn->lookup->free)
+		rpn->lookup->free(rpn);
 }
 
 static struct constant {
@@ -936,7 +961,9 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 		} else if ((lookup = do_lookup(tok)) != NULL) {
 			rpn->run = lookup->run;
 			rpn->flags = lookup->flags;
-
+			rpn->lookup = lookup;
+			if (lookup->privsize)
+				rpn = rpn_grow(rpn, lookup->privsize);
 		} else if ((constant = do_constant(tok)) != NULL) {
 			rpn->run = rpn_do_const;
 			rpn->value = constant->value;

@@ -359,7 +359,7 @@ static void iiodev_data(int fd, void *dat)
 			payload = "";
 		} else
 		switch (el->bytesused) {
-		case 1: {
+		case 1:
 			val32 = dev->dat[el->location];
 			val32 >>= el->shift;
 			val32 &= (1 << el->bitsused)-1;
@@ -367,8 +367,8 @@ static void iiodev_data(int fd, void *dat)
 				/* stuff highest bits */
 				val32 |= ~((1 << el->bitsused)-1);
 			valf = (val32+el->offset)*el->scale;
-		} break;
-		case 2: {
+			break;
+		case 2:
 			memcpy(&val16, dev->dat+el->location, 2);
 			val32 = el->le ? le16toh(val16) : be16toh(val16);
 
@@ -378,8 +378,8 @@ static void iiodev_data(int fd, void *dat)
 				/* stuff highest bits */
 				val32 |= ~((1 << el->bitsused)-1);
 			valf = (val32+el->offset)*el->scale;
-		} break;
-		case 4: {
+			break;
+		case 4:
 			memcpy(&val32, dev->dat+el->location, 4);
 			val32 = el->le ? le32toh(val32) : be32toh(val32);
 
@@ -394,8 +394,8 @@ static void iiodev_data(int fd, void *dat)
 				valf = ((uint32_t)val32+el->offset)*el->scale;
 			else
 				valf = (val32+el->offset)*el->scale;
-		} break;
-		case 8: {
+			break;
+		case 8:
 			memcpy(&val64, dev->dat+el->location, 8);
 			val64 = el->le ? le64toh(val64) : be64toh(val64);
 
@@ -417,7 +417,7 @@ static void iiodev_data(int fd, void *dat)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
 			else
 				valf = (val64+el->offset)*el->scale;
-		} break;
+			break;
 		default:
 			valf = NAN;
 			break;

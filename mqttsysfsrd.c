@@ -265,8 +265,7 @@ static void pub_it(void *dat)
 fail_read:
 	close(fd);
 fail_open:
-	/* remove, I cannot handle it */
-	drop_item(it);
+	libt_repeat_timeout(60, pub_it, dat);
 }
 
 static int test_suffix(const char *topic, const char *suffix)

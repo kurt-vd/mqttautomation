@@ -92,6 +92,8 @@ struct item {
 	double mul;
 	double samplerate;
 
+	int lasterr;
+
 	struct map *map;
 	int nmap, mapsize;
 };
@@ -216,6 +218,13 @@ static void parse_map(struct item *it)
 }
 
 /* read hw */
+static inline int err_is_new(struct item *it, int errnum)
+{
+	if (it->lasterr == errnum)
+		return 0;
+	it->lasterr = errnum;
+	return 1;
+}
 static void pub_it(void *dat)
 {
 	struct item *it = dat;
@@ -225,15 +234,19 @@ static void pub_it(void *dat)
 
 	fd = open(it->sysfs, O_RDONLY);
 	if (fd < 0) {
-		mylog(LOG_WARNING, "open %s failed: %s", it->sysfs, ESTR(errno));
+		if (err_is_new(it, errno))
+			mylog(LOG_WARNING, "open %s failed: %s", it->sysfs, ESTR(errno));
 		goto fail_open;
 	}
 	ret = read(fd, strvalue, sizeof(strvalue)-1);
 	if (ret < 0) {
-		mylog(LOG_WARNING, "read %s failed: %s", it->sysfs, ESTR(errno));
+		if (err_is_new(it, errno))
+			mylog(LOG_WARNING, "read %s failed: %s", it->sysfs, ESTR(errno));
 		goto fail_read;
 	}
 	close(fd);
+	if (err_is_new(it, 0))
+		mylog(LOG_WARNING, "%s back to normal", it->sysfs);
 	/* null-terminate value */
 	strvalue[ret] = 0;
 

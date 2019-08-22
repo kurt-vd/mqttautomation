@@ -180,8 +180,11 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	if (is_self_sync(msg)) {
 		for (it = items; it; it = next) {
 			next = it->next;
-			if (!it->imported)
+			if (!it->imported && it->value)
 				send_item(it, "import");
+
+			else if (!it->imported && !it->value)
+				drop_item(it);
 		}
 	}
 
@@ -190,7 +193,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			if (it->imported)
 				drop_item(it);
 			else if (type == TYPE_NORMAL && strcmp(msg->payload ?: "", it->value ?: "")) {
-				send_item(it, "update");
+				send_item(it, it->value ? "update" : "clear");
 				if (dryrun)
 					mylog(LOG_NOTICE, "was %s", (const char *)msg->payload);
 			} else {

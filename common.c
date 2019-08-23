@@ -120,7 +120,9 @@ double mystrtod(const char *str, char **endp)
 			goto done;
 		}
 		value += part*fact;
-		strpos = *endp+1;
+		/* consume suffix */
+		*endp += 1;
+		strpos = *endp;
 	}
 done:
 	return (*endp == str) ? NAN : value;

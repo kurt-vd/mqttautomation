@@ -194,6 +194,22 @@ static void rpn_do_negative(struct stack *st, struct rpn *me)
 	rpn_push(st, -rpn_pop1(st)->d);
 }
 
+static void rpn_do_min(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_pop1(st);
+	struct rpn_el *b = rpn_pop1(st);
+
+	rpn_push_el(st, (dblcmp(a->d, b->d, 1e-9) < 0) ? a : b);
+}
+
+static void rpn_do_max(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *a = rpn_pop1(st);
+	struct rpn_el *b = rpn_pop1(st);
+
+	rpn_push_el(st, (dblcmp(a->d, b->d, 1e-9) > 0) ? a : b);
+}
+
 /* utilities */
 static void rpn_do_limit(struct stack *st, struct rpn *me)
 {
@@ -868,6 +884,8 @@ static struct lookup {
 	{ "swap", rpn_do_swap, },
 	{ "?:", rpn_do_ifthenelse, },
 
+	{ "min", rpn_do_min, },
+	{ "max", rpn_do_max, },
 	{ "limit", rpn_do_limit, },
 	{ "inrange", rpn_do_inrange, },
 	{ "category", rpn_do_category, },

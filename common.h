@@ -12,6 +12,10 @@ extern void myopenlog(const char *name, int options, int facility);
 extern void myloglevel(int loglevel);
 extern int mysetloglevelstr(char *str);
 
+extern void mylogsethook(void (*)(int loglevel, const char *str));
+/* generic error logging */
+#define LOG_MQTT	0x4000000
+
 extern const char *mydtostr(double d);
 extern double mystrtod(const char *str, char **endp);
 

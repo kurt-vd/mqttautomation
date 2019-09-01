@@ -17,6 +17,17 @@
 static int logtostderr = -1;
 static int maxloglevel = LOG_WARNING;
 static const char *label;
+static void (*loghook)(int loglevel, const char *str);
+
+/* safeguard our LOG_EXIT extension */
+#if (LOG_MQTT & (LOG_FACMASK | LOG_PRIMASK))
+#error LOG_MQTT conflict
+#endif
+
+void mylogsethook(void (*hook)(int loglevel, const char *str))
+{
+	loghook = hook;
+}
 
 void myopenlog(const char *name, int options, int facility)
 {
@@ -45,9 +56,9 @@ void mylog(int loglevel, const char *fmt, ...)
 	if (logtostderr < 0)
 		myopenlog(NULL, 0, LOG_LOCAL1);
 
-	if (logtostderr && loglevel > maxloglevel)
-		goto done;
 	va_start(va, fmt);
+	if (logtostderr && ((loglevel & LOG_PRIMASK) > maxloglevel))
+		goto done;
 	if (logtostderr) {
 		if (label)
 			fprintf(stderr, "%s: ", label);
@@ -55,9 +66,16 @@ void mylog(int loglevel, const char *fmt, ...)
 		fputc('\n', stderr);
 		fflush(stderr);
 	} else
-		vsyslog(loglevel, fmt, va);
-	va_end(va);
+		vsyslog(loglevel & LOG_PRIMASK, fmt, va);
 done:
+	if (loghook) {
+		char *payload;
+
+		vasprintf(&payload, fmt, va);
+		loghook(loglevel, payload);
+		free(payload);
+	}
+	va_end(va);
 	if (loglevel <= LOG_ERR)
 		exit(1);
 }

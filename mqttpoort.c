@@ -86,6 +86,26 @@ static const char *mqtt_homekit_wrsuffix;
 /* state */
 static struct mosquitto *mosq;
 
+/* log to mqtt */
+static const char *mqtt_log_levels[] = {
+	[LOG_EMERG] = "log/" NAME "/emerg",
+	[LOG_ALERT] = "log/" NAME "/alert",
+	[LOG_CRIT] = "log/" NAME "/crit",
+	[LOG_ERR] = "log/" NAME "/err",
+	[LOG_WARNING] = "log/" NAME "/err",
+	[LOG_NOTICE] = "log/" NAME "/err",
+	[LOG_INFO] = "log/" NAME "/err",
+	[LOG_DEBUG] = "log/" NAME "/err",
+};
+static void mqttloghook(int level, const char *payload)
+{
+	int ret;
+
+	ret = mosquitto_publish(mosq, NULL, mqtt_log_levels[level], strlen(payload), payload, mqtt_qos, 0);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_log_levels[level], mosquitto_strerror(ret));
+}
+
 struct item {
 	struct item *next;
 	struct item *prev;
@@ -479,7 +499,7 @@ static void on_poort_moved(void *dat)
 
 			if (posctrl(it)) {
 				if (++it->nretry > 3)
-					mylog(LOG_WARNING, "poort %s keeps failing", it->topic);
+					mylog(LOG_WARNING | LOG_MQTT, "poort %s keeps failing", it->topic);
 				else {
 					mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
 					/* retry */
@@ -492,7 +512,7 @@ static void on_poort_moved(void *dat)
 				/* end-of-course reached, stop now */
 				it->state = ST_CLOSED;
 			} else {
-				mylog(LOG_WARNING, "poort %s: closed not seen", it->topic);
+				mylog(LOG_WARNING | LOG_MQTT, "poort %s: closed not seen", it->topic);
 				it->state = ST_CSTOPPED;
 				it->currval = 1.1;
 				poort_publish(it);
@@ -666,7 +686,7 @@ static void on_ctl_set_timeout(void *dat)
 {
 	struct item *it = dat;
 
-	mylog(LOG_WARNING, "poort control %s does not respond", it->topic);
+	mylog(LOG_WARNING | LOG_MQTT, "poort control %s does not respond", it->topic);
 	it->ctlval = it->currctlval;
 }
 
@@ -1096,6 +1116,9 @@ int main(int argc, char *argv[])
 		if (ret)
 			mylog(LOG_ERR, "mosquitto_subscribe %s: %s", argv[optind], mosquitto_strerror(ret));
 	}
+
+	/* catch LOG_MQTT-marked logs via MQTT */
+	mylogsethook(mqttloghook);
 
 	while (1) {
 		libt_flush();

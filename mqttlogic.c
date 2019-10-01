@@ -106,6 +106,9 @@ struct item {
 	struct rpn *onchange;
 	char *logic_payload;
 	char *onchange_payload;
+
+	/* cache topic misses during startup */
+	char *missingtopic;
 };
 
 static struct item *items;
@@ -200,8 +203,20 @@ const char *rpn_lookup_env(const char *name, struct rpn *rpn)
 	topic = get_topic(name, 0);
 	lastrpntopic = topic;
 	if (!topic) {
-		mylog(LOG_INFO, "topic %s not found", name);
+		if (strcmp(curritem->missingtopic ?: "", name)) {
+			/* new missing topic found */
+			if (mqtt_ready)
+				mylog(LOG_INFO | LOG_MQTT, "%s: %s not found", curritem->topic, name);
+			if (curritem->missingtopic)
+				free(curritem->missingtopic);
+			curritem->missingtopic = strdup(name);
+		}
 		return NULL;
+
+	}
+	if (!strcmp(curritem->missingtopic ?: "", name)) {
+		free(curritem->missingtopic);
+		curritem->missingtopic = NULL;
 	}
 	return topic->value;
 }
@@ -334,6 +349,7 @@ static void drop_item(struct item *it, struct rpn **prpn)
 	free(it->topic);
 	myfree(it->writetopic);
 	myfree(it->lastvalue);
+	myfree(it->missingtopic);
 	free(it);
 }
 
@@ -413,6 +429,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 	if (is_self_sync(msg)) {
 		mqtt_ready = 1;
+		for (it = items; it; it = it->next) {
+			if (it->missingtopic)
+				mylog(LOG_INFO | LOG_MQTT, "%s: %s not found", it->topic, it->missingtopic);
+		}
 	}
 
 	if (!strcmp(msg->topic, "tools/loglevel")) {

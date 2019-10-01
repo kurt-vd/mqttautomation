@@ -154,6 +154,30 @@ static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const
 	}
 }
 
+/* log to mqtt */
+static const char *mqtt_log_levels[] = {
+	[LOG_EMERG] = "log/" NAME "/emerg",
+	[LOG_ALERT] = "log/" NAME "/alert",
+	[LOG_CRIT] = "log/" NAME "/crit",
+	[LOG_ERR] = "log/" NAME "/err",
+	[LOG_WARNING] = "log/" NAME "/warn",
+	[LOG_NOTICE] = "log/" NAME "/notice",
+	[LOG_INFO] = "log/" NAME "/info",
+	[LOG_DEBUG] = "log/" NAME "/debug",
+};
+static void mqttloghook(int level, const char *payload)
+{
+	if (!(level & LOG_MQTT))
+		return;
+
+	int ret;
+	int purelevel = level & LOG_PRIMASK;
+
+	ret = mosquitto_publish(mosq, NULL, mqtt_log_levels[purelevel], strlen(payload), payload, mqtt_qos, 0);
+	if (ret < 0)
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_log_levels[purelevel], mosquitto_strerror(ret));
+}
+
 /* mqtt cache */
 static int rpn_has_ref(struct rpn *rpn, const char *topic);
 
@@ -745,6 +769,9 @@ int main(int argc, char *argv[])
 
 	/* initiate a loopback to know if we got all retained topics */
 	send_self_sync(mosq, mqtt_qos);
+
+	/* catch LOG_MQTT-marked logs via MQTT */
+	mylogsethook(mqttloghook);
 
 	if (dryrun)
 		mylog(LOG_NOTICE, "dry run, not touching anything");

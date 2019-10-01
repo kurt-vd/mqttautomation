@@ -1051,7 +1051,7 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 			rpn->constvalue = strdup(tok);
 
 		} else {
-			mylog(LOG_INFO, "unknown token '%s'", tok);
+			mylog(LOG_INFO | LOG_MQTT, "unknown token '%s'", tok);
 			rpn_free(rpn);
 			goto failed;
 		}

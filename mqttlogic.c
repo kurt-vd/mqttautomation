@@ -703,5 +703,9 @@ int main(int argc, char *argv[])
 		if (ret >= 0)
 			libe_flush();
 	}
+	/* cleanup */
+	mosquitto_disconnect(mosq);
+	mosquitto_destroy(mosq);
+	mosquitto_lib_cleanup();
 	return 0;
 }

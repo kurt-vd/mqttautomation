@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <syslog.h>
+#include <sys/signalfd.h>
 #include <mosquitto.h>
 
 #include "lib/libt.h"
@@ -69,7 +70,7 @@ static const char optstring[] = "Vv?m:s:S:c:w:";
 static int loglevel = LOG_WARNING;
 
 /* signal handler */
-static volatile int sigterm;
+static int sigterm;
 
 /* MQTT parameters */
 static const char *mqtt_host = "localhost";
@@ -572,6 +573,27 @@ static void timechanged(int fd, void *dat)
 		mylog(LOG_ERR, "timerfd rearm: %s", ESTR(errno));
 }
 
+__attribute__((unused))
+static void signalrecvd(int fd, void *dat)
+{
+	int ret;
+	struct signalfd_siginfo sfdi;
+
+	for (;;) {
+		ret = read(fd, &sfdi, sizeof(sfdi));
+		if (ret < 0 && errno == EAGAIN)
+			break;
+		if (ret < 0)
+			mylog(LOG_ERR, "read signalfd: %s", ESTR(errno));
+		switch (sfdi.ssi_signo) {
+		case SIGTERM:
+		case SIGINT:
+			sigterm = 1;
+			break;
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int opt, ret;
@@ -650,6 +672,21 @@ int main(int argc, char *argv[])
 	libt_add_timeout(0, mqtt_maintenance, mosq);
 	libe_add_fd(mosquitto_socket(mosq), recvd_mosq, mosq);
 
+	/* prepare signalfd (turn off for debugging) */
+#if 1
+	sigset_t sigmask;
+	int sigfd;
+
+	sigfillset(&sigmask);
+
+	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0)
+		mylog(LOG_ERR, "sigprocmask: %s", ESTR(errno));
+	sigfd = signalfd(-1, &sigmask, SFD_NONBLOCK | SFD_CLOEXEC);
+	if (sigfd < 0)
+		mylog(LOG_ERR, "signalfd failed: %s", ESTR(errno));
+	libe_add_fd(sigfd, signalrecvd, NULL);
+#endif
+
 	/* listen to wall-time changes */
 	int tcfd = libtimechange_makefd();
 	if (tcfd < 0)
@@ -659,7 +696,7 @@ int main(int argc, char *argv[])
 	libe_add_fd(tcfd, timechanged, NULL);
 
 	/* core loop */
-	while (1) {
+	for (; !sigterm; ) {
 		libt_flush();
 		mosq_update_flags();
 		ret = libe_wait(libt_get_waittime());

@@ -92,10 +92,10 @@ static const char *mqtt_log_levels[] = {
 	[LOG_ALERT] = "log/" NAME "/alert",
 	[LOG_CRIT] = "log/" NAME "/crit",
 	[LOG_ERR] = "log/" NAME "/err",
-	[LOG_WARNING] = "log/" NAME "/err",
-	[LOG_NOTICE] = "log/" NAME "/err",
-	[LOG_INFO] = "log/" NAME "/err",
-	[LOG_DEBUG] = "log/" NAME "/err",
+	[LOG_WARNING] = "log/" NAME "/warn",
+	[LOG_NOTICE] = "log/" NAME "/notice",
+	[LOG_INFO] = "log/" NAME "/info",
+	[LOG_DEBUG] = "log/" NAME "/debug",
 };
 static void mqttloghook(int level, const char *payload)
 {

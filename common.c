@@ -32,10 +32,7 @@ void mylogsethook(void (*hook)(int loglevel, const char *str))
 
 void myopenlog(const char *name, int options, int facility)
 {
-	char *tty;
-
-	tty = ttyname(STDERR_FILENO);
-	logtostderr = tty && !!strcmp(tty, "/dev/console");
+	logtostderr = isatty(STDERR_FILENO);
 	if (!logtostderr && name) {
 		openlog(name, options, facility);
 		setlogmask(LOG_UPTO(maxloglevel));

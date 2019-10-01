@@ -125,6 +125,9 @@ static int stopics;
 
 #define myfree(x) ({ if (x) { free(x); (x) = NULL; }})
 
+static struct item *curritem;
+static struct topic *currtopic;
+
 /* MQTT iface */
 static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const char *str)
 {
@@ -337,6 +340,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 	int ret;
 	const char *result;
 
+	curritem = it;
 	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
 	if (trigger)
@@ -344,6 +348,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 	ret = rpn_run(&rpnstack, it->logic);
 	if (trigger)
 		trigger->isnew = 0;
+	curritem = NULL;
 	if (ret < 0 || !rpnstack.n)
 		/* TODO: alert */
 		return;
@@ -381,9 +386,11 @@ save_cache:
 
 static void do_onchanged(struct item *it)
 {
+	curritem = it;
 	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
 	rpn_run(&rpnstack, it->onchange);
+	curritem = NULL;
 }
 
 void rpn_run_again(void *dat)
@@ -496,12 +503,14 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	if (topic) {
 		free(topic->value);
 		topic->value = strndup(msg->payload ?: "", msg->payloadlen);
+		currtopic = topic;
 		if (topic->ref) {
 			for (it = items; it; it = it->next) {
 				if (rpn_has_ref(it->logic, msg->topic))
 					do_logic(it, topic);
 			}
 		}
+		currtopic = NULL;
 	}
 	/* run onchange logic */
 	it = get_item(msg->topic, "", 0);

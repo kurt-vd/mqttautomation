@@ -36,6 +36,8 @@ static const char help_msg[] =
 	"Options\n"
 	" -V, --version		Show version\n"
 	" -v, --verbose		Be more verbose\n"
+	" -n, --dry-run		don't actually set anything\n"
+	"\n"
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for scripts (default '/logic')\n"
 	" -S, --setsuffix=STR	Give MQTT topic suffix for scripts that write to /set (default '/setlogic')\n"
@@ -51,6 +53,7 @@ static struct option long_opts[] = {
 	{ "help", no_argument, NULL, '?', },
 	{ "version", no_argument, NULL, 'V', },
 	{ "verbose", no_argument, NULL, 'v', },
+	{ "dry-run", no_argument, NULL, 'n', },
 
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
@@ -64,10 +67,11 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:s:S:c:w:";
+static const char optstring[] = "Vv?nm:s:S:c:w:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
+static int dryrun;
 
 /* signal handler */
 static int sigterm;
@@ -202,6 +206,8 @@ int rpn_write_env(const char *value, const char *name, struct rpn *rpn)
 	int ret;
 
 	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s", name, rpn->cookie ? '=' : '>', value);
+	if (dryrun)
+		return 0;
 	ret = mosquitto_publish(mosq, NULL, name, strlen(value), value, mqtt_qos, rpn->cookie);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", name, mosquitto_strerror(ret));
@@ -359,6 +365,8 @@ static void do_logic(struct item *it, struct topic *trigger)
 
 	int loglevel = (!trigger && (it->logicflags & RPNFN_PERIODIC)) ? LOG_INFO : LOG_NOTICE;
 	mylog(loglevel, "mosquitto_publish %s%c%s", it->writetopic ?: it->topic, it->writetopic ? '>' : '=', result);
+	if (dryrun)
+		goto save_cache;
 	ret = mosquitto_publish(mosq, NULL, it->writetopic ?: it->topic, strlen(result), result, mqtt_qos, !it->writetopic);
 	if (ret < 0) {
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
@@ -507,10 +515,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			 * our /set request, so we repeat it here.
 			 */
 			mylog(LOG_NOTICE, "repeat %s>%s", it->writetopic, it->lastvalue);
-			ret = mosquitto_publish(mosq, NULL, it->writetopic, strlen(it->lastvalue), it->lastvalue, mqtt_qos, 0);
-			if (ret < 0) {
-				mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic, mosquitto_strerror(ret));
-				return;
+			if (!dryrun) {
+				ret = mosquitto_publish(mosq, NULL, it->writetopic, strlen(it->lastvalue), it->lastvalue, mqtt_qos, 0);
+				if (ret < 0) {
+					mylog(LOG_ERR, "mosquitto_publish %s: %s", it->writetopic, mosquitto_strerror(ret));
+					return;
+				}
 			}
 		}
 		if (!msg->retain)
@@ -610,6 +620,9 @@ int main(int argc, char *argv[])
 	case 'v':
 		++loglevel;
 		break;
+	case 'n':
+		dryrun = 1;
+		break;
 	case 'm':
 		mqtt_host = optarg;
 		str = strrchr(optarg, ':');
@@ -694,6 +707,9 @@ int main(int argc, char *argv[])
 	if (libtimechange_arm(tcfd) < 0)
 		mylog(LOG_ERR, "timerfd rearm: %s", ESTR(errno));
 	libe_add_fd(tcfd, timechanged, NULL);
+
+	if (dryrun)
+		mylog(LOG_NOTICE, "dry run, not touching anything");
 
 	/* core loop */
 	for (; !sigterm; ) {

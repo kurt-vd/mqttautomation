@@ -128,6 +128,8 @@ static int stopics;
 static struct item *curritem;
 static struct topic *currtopic;
 
+static int mqtt_ready;
+
 /* MQTT iface */
 static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const char *str)
 {
@@ -408,6 +410,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	struct item *it;
 	struct topic *topic;
 	int ret;
+
+	if (is_self_sync(msg)) {
+		mqtt_ready = 1;
+	}
 
 	if (!strcmp(msg->topic, "tools/loglevel")) {
 		mysetloglevelstr(msg->payload);
@@ -716,6 +722,9 @@ int main(int argc, char *argv[])
 	if (libtimechange_arm(tcfd) < 0)
 		mylog(LOG_ERR, "timerfd rearm: %s", ESTR(errno));
 	libe_add_fd(tcfd, timechanged, NULL);
+
+	/* initiate a loopback to know if we got all retained topics */
+	send_self_sync(mosq, mqtt_qos);
 
 	if (dryrun)
 		mylog(LOG_NOTICE, "dry run, not touching anything");

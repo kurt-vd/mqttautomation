@@ -9,6 +9,7 @@
 #include <unistd.h>
 #define SYSLOG_NAMES
 #include <syslog.h>
+#include <sys/uio.h>
 
 #include <mosquitto.h>
 #include "common.h"
@@ -52,30 +53,44 @@ void myloglevel(int level)
 void mylog(int loglevel, const char *fmt, ...)
 {
 	va_list va;
+	char *msg = NULL;
 
 	if (logtostderr < 0)
 		myopenlog(NULL, 0, LOG_LOCAL1);
 
 	va_start(va, fmt);
+
 	if (logtostderr && ((loglevel & LOG_PRIMASK) > maxloglevel))
 		goto done;
 	if (logtostderr) {
-		if (label)
-			fprintf(stderr, "%s: ", label);
-		vfprintf(stderr, fmt, va);
-		fputc('\n', stderr);
-		fflush(stderr);
+		struct timespec tv;
+		char timbuf[64];
+
+		clock_gettime(CLOCK_REALTIME, &tv);
+		strftime(timbuf, sizeof(timbuf), "%b %d %H:%M:%S", localtime(&tv.tv_sec));
+		sprintf(timbuf+strlen(timbuf), ".%03u ", (int)(tv.tv_nsec/1000000));
+
+		vasprintf(&msg, fmt, va);
+
+		struct iovec vec[] = {
+			{ .iov_base = timbuf, .iov_len = strlen(timbuf), },
+			{ .iov_base = (char *)label, .iov_len = strlen(label), },
+			{ .iov_base = ": ", .iov_len = 2, },
+			{ .iov_base = msg, .iov_len = strlen(msg), },
+			{ .iov_base = "\n", .iov_len = 1, },
+		};
+		writev(STDERR_FILENO, vec, sizeof(vec)/sizeof(vec[0]));
 	} else
 		vsyslog(loglevel & LOG_PRIMASK, fmt, va);
 done:
 	if (loghook) {
-		char *payload;
-
-		vasprintf(&payload, fmt, va);
-		loghook(loglevel, payload);
-		free(payload);
+		if (!msg)
+			vasprintf(&msg, fmt, va);
+		loghook(loglevel, msg);
 	}
 	va_end(va);
+	if (msg)
+		free(msg);
 	if (loglevel <= LOG_ERR)
 		exit(1);
 }

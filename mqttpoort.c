@@ -99,11 +99,15 @@ static const char *mqtt_log_levels[] = {
 };
 static void mqttloghook(int level, const char *payload)
 {
-	int ret;
+	if (!(level & LOG_MQTT))
+		return;
 
-	ret = mosquitto_publish(mosq, NULL, mqtt_log_levels[level], strlen(payload), payload, mqtt_qos, 0);
+	int ret;
+	int purelevel = level & LOG_PRIMASK;
+
+	ret = mosquitto_publish(mosq, NULL, mqtt_log_levels[purelevel], strlen(payload), payload, mqtt_qos, 0);
 	if (ret < 0)
-		mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_log_levels[level], mosquitto_strerror(ret));
+		mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_log_levels[purelevel], mosquitto_strerror(ret));
 }
 
 struct item {

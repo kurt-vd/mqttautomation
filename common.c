@@ -55,8 +55,6 @@ void mylog(int loglevel, const char *fmt, ...)
 	if (logtostderr < 0)
 		myopenlog(NULL, 0, LOG_LOCAL1);
 
-	va_start(va, fmt);
-
 	if (logtostderr && ((loglevel & LOG_PRIMASK) > maxloglevel))
 		goto done;
 	if (logtostderr) {
@@ -67,7 +65,9 @@ void mylog(int loglevel, const char *fmt, ...)
 		strftime(timbuf, sizeof(timbuf), "%b %d %H:%M:%S", localtime(&tv.tv_sec));
 		sprintf(timbuf+strlen(timbuf), ".%03u ", (int)(tv.tv_nsec/1000000));
 
+		va_start(va, fmt);
 		vasprintf(&msg, fmt, va);
+		va_end(va);
 
 		struct iovec vec[] = {
 			{ .iov_base = timbuf, .iov_len = strlen(timbuf), },
@@ -77,15 +77,20 @@ void mylog(int loglevel, const char *fmt, ...)
 			{ .iov_base = "\n", .iov_len = 1, },
 		};
 		writev(STDERR_FILENO, vec, sizeof(vec)/sizeof(vec[0]));
-	} else
+	} else {
+		va_start(va, fmt);
 		vsyslog(loglevel & LOG_PRIMASK, fmt, va);
+		va_end(va);
+	}
 done:
 	if (loghook) {
-		if (!msg)
+		if (!msg) {
+			va_start(va, fmt);
 			vasprintf(&msg, fmt, va);
+			va_end(va);
+		}
 		loghook(loglevel, msg);
 	}
-	va_end(va);
 	if (msg)
 		free(msg);
 	if (loglevel <= LOG_ERR)

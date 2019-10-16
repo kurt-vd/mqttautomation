@@ -381,6 +381,7 @@ static void do_logic(struct item *it, struct topic *trigger)
 {
 	int ret;
 	const char *result;
+	int loglevel = (!trigger && (it->logicflags & RPNFN_PERIODIC)) ? LOG_INFO : LOG_NOTICE;
 
 	curritem = it;
 	lastrpntopic = NULL;
@@ -391,13 +392,23 @@ static void do_logic(struct item *it, struct topic *trigger)
 	if (trigger)
 		trigger->isnew = 0;
 	curritem = NULL;
-	if (ret < 0 || !rpnstack.n)
+	if (ret < 0)
 		/* TODO: alert */
 		return;
+	if (!rpnstack.n) {
+		/* no value, so clear our state */
+		if (it->lastvalue) {
+			free(it->lastvalue);
+			mylog(loglevel, "%s: no value from logic", it->topic);
+		}
+		it->lastvalue = NULL;
+		return;
+	}
+
 	struct rpn_el *el = rpnstack.v+rpnstack.n-1;
 	result = el->a ?: mydtostr(el->d);
 	/* test if we found something new */
-	if (!strcmp(it->lastvalue ?: "", result))
+	if (it->lastvalue && !strcmp(it->lastvalue, result))
 		return;
 	else if (trigger && !strcmp(trigger->topic, it->topic)) {
 		/* This new calculation is triggered by the topic itself: beware loops */
@@ -410,7 +421,6 @@ static void do_logic(struct item *it, struct topic *trigger)
 		return;
 	}
 
-	int loglevel = (!trigger && (it->logicflags & RPNFN_PERIODIC)) ? LOG_INFO : LOG_NOTICE;
 	mylog(loglevel, "mosquitto_publish %s%c%s", it->writetopic ?: it->topic, it->writetopic ? '>' : '=', result);
 	if (dryrun)
 		goto save_cache;

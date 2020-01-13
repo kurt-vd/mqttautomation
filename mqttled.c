@@ -171,7 +171,7 @@ static void my_mqtt_log(struct mosquitto *mosq, void *userdata, int level, const
 		MOSQ_LOG_WARNING, LOG_WARNING,
 		MOSQ_LOG_NOTICE, LOG_NOTICE,
 		MOSQ_LOG_INFO, LOG_INFO,
-		MOSQ_LOG_DEBUG, LOG_DEBUG,
+		//MOSQ_LOG_DEBUG, LOG_DEBUG,
 		0,
 	};
 	int j;
@@ -355,6 +355,7 @@ static void setled(struct item *it, const char *newvalue, int republish)
 	if (!it->initialized || (republish && mqtt_write_suffix)) {
 		it->initialized = 1;
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
+		mylog(LOG_DEBUG, "%s > %s", it->topic, newvalue ?: "''");
 		ret = mosquitto_publish(mosq, NULL, it->topic, strlen(newvalue ?: ""), newvalue, mqtt_qos, 1);
 		if (ret < 0)
 			mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
@@ -370,6 +371,7 @@ static void led_initial_value(void *dat)
 	 * this does not hurt the real output, but may trigger
 	 * other logic to re-send
 	 */
+	mylog(LOG_DEBUG, "%s > %s", it->topic, "''");
 	ret = mosquitto_publish(mosq, NULL, it->topic, 0, NULL, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));

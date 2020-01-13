@@ -82,11 +82,29 @@ struct item {
 	char *topic;
 	int topiclen;
 	char *writetopic;
+	char *redirtopic;
+	char *redirwrtopic;
 	char *name;
 	char *sysfsdir;
 	int maxvalue;
 	int initialized;
 };
+
+__attribute__((unused))
+static int is_physical(const struct item *it)
+{
+	return !!it->sysfsdir;
+}
+__attribute__((unused))
+static int is_virtual(const struct item *it)
+{
+	return !it->sysfsdir && !it->redirtopic;
+}
+__attribute__((unused))
+static int is_redir(const struct item *it)
+{
+	return !it->sysfsdir && it->redirtopic;
+}
 
 struct item *items;
 
@@ -264,12 +282,21 @@ static void drop_item(struct item *it)
 	if (it->next)
 		it->next->prev = it->prev;
 
+	if (it->redirtopic) {
+		ret = mosquitto_unsubscribe(mosq, NULL, it->redirtopic);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->redirtopic, mosquitto_strerror(ret));
+		free(it->redirtopic);
+	}
+	if (it->redirwrtopic)
+		free(it->redirwrtopic);
 	ret = mosquitto_unsubscribe(mosq, NULL, it->writetopic ?: it->topic);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
 	/* free memory */
 	free(it->topic);
-	free(it->name);
+	if (it->name)
+		free(it->name);
 	if (it->writetopic)
 		free(it->writetopic);
 	if (it->sysfsdir)
@@ -288,7 +315,34 @@ static void init_led(struct item *it)
 	};
 	char *path;
 	struct stat st;
-	int j;
+	int j, ret;
+
+	if (it->sysfsdir)
+		free(it->sysfsdir);
+	it->sysfsdir = NULL;
+	if (it->redirtopic) {
+		ret = mosquitto_unsubscribe(mosq, NULL, it->redirtopic);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->redirtopic, mosquitto_strerror(ret));
+		free(it->redirtopic);
+	}
+	it->redirtopic = NULL;
+	if (it->redirwrtopic)
+		free(it->redirwrtopic);
+	it->redirwrtopic = NULL;
+
+	if (!strcmp(it->name, "...")) {
+		return;
+	} else if (!strncmp("redir:", it->name, 6)) {
+		it->redirtopic = strdup(it->name+6);
+		asprintf(&it->redirwrtopic, "%s%s", it->redirtopic, mqtt_write_suffix ?: "");
+		/* subscribe */
+		ret = mosquitto_subscribe(mosq, NULL, it->redirtopic, mqtt_qos);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->redirtopic, mosquitto_strerror(ret));
+		mylog(LOG_INFO, "%s: redirect to %s", it->topic, it->redirtopic);
+		return;
+	}
 
 	for (j = 0; sysfsdir_fmts[j]; ++j) {
 		asprintf(&path, sysfsdir_fmts[j], it->name);
@@ -304,7 +358,7 @@ static void init_led(struct item *it)
 	it->maxvalue = attr_read(255, "%s/max_brightness", it->sysfsdir);
 }
 
-static void setled(struct item *it, const char *newvalue, int republish)
+static void setled(struct item *it, const char *newvalue, int republish, int forcelocal)
 {
 	int ret, newval;
 	char buf[16], *endp;
@@ -313,8 +367,19 @@ static void setled(struct item *it, const char *newvalue, int republish)
 		libt_remove_timeout(led_initial_value, it);
 	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
-	if (!it->sysfsdir && !strcmp(it->name, "...")) {
+	if (is_virtual(it)) {
 		/* do nothing, without backend */
+	} else if (is_redir(it)) {
+		/* a redirecting led */
+		if (!forcelocal) {
+			/* redirect to remote led */
+			mylog(LOG_DEBUG, "%s > %s", it->redirwrtopic, newvalue ?: "''");
+			ret = mosquitto_publish(mosq, NULL, it->redirwrtopic, strlen(newvalue ?: ""), newvalue, mqtt_qos, 0);
+			if (ret < 0)
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", it->redirwrtopic, mosquitto_strerror(ret));
+			return;
+		}
+
 	} else if (!it->sysfsdir) {
 		/* don't ack the led */
 		return;
@@ -410,18 +475,28 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* finalize */
 		mylog(LOG_INFO, "new led spec for %s: '%s'", it->topic, ledname);
 		init_led(it);
-		if (!it->initialized)
+		if (!it->initialized && !is_redir(it))
 			libt_add_timeout(0.5, led_initial_value, it);
 
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */
 		if (!msg->retain)
-			setled(it, msg->payload, 1);
+			setled(it, msg->payload, 1, 0);
 
-	} else if ((!mqtt_write_suffix || msg->retain) &&
+	} else {
+		if ((!mqtt_write_suffix || msg->retain) &&
 			(it = get_item(msg->topic, NULL, 0)) != NULL) {
-		/* this is the main led topic */
-		setled(it, msg->payload, 0);
+			if (is_physical(it))
+				/* this is the main led topic */
+				setled(it, msg->payload, 0, 0);
+		}
+
+		/* test for redirected leds */
+		for (it = items; it; it = it->next) {
+			if (it->redirtopic && !strcmp(msg->topic, it->redirtopic))
+				/* modified setled() implementation */
+				setled(it, msg->payload, 1, 1);
+		}
 	}
 }
 

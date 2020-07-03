@@ -309,7 +309,7 @@ static void on_avgtime_period(void *dat)
 static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 {
 	struct avgtime *avg = rpn_priv(me);
-	double v, period;
+	double v, period, stabletime;
 	double now, next;
 
 	period = rpn_pop1(st)->d;
@@ -318,8 +318,9 @@ static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 	now = libt_now();
 
 	if (avg->started) {
-		avg->sum += avg->last_in;
-		avg->n += now - avg->last_t;
+		stabletime = now - avg->last_t;
+		avg->sum += avg->last_in * stabletime;
+		avg->n += stabletime;
 
 		if (avg->newperiod) {
 			/* new period starts here */

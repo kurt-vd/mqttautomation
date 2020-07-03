@@ -258,6 +258,26 @@ static void rpn_do_category(struct stack *st, struct rpn *me)
 	rpn_push(st, value);
 }
 
+static void rpn_do_ramp3(struct stack *st, struct rpn *me)
+{
+	double value = rpn_n(st, -4)->d;
+	double lo = rpn_n(st, -3)->d;
+	double hi = rpn_n(st, -2)->d;
+	double step = rpn_n(st, -1)->d;
+
+	rpn_pop(st, 4);
+
+	value = (value - lo) / (hi - lo);
+	/* make discrete steps */
+	value = round(value / step)*step;
+	/* limit */
+	if (value < 0)
+		value = 0;
+	else if (value > 1)
+		value = 1;
+	rpn_push(st, value);
+}
+
 static void rpn_do_hyst2(struct stack *st, struct rpn *me)
 {
 	struct rpn_el *dut = rpn_n(st, -3);
@@ -895,6 +915,7 @@ static struct lookup {
 	{ "hyst", rpn_do_hyst2, },
 	{ "throttle", rpn_do_debounce2, },
 	{ "avgtime", rpn_do_avgtime, RPNFN_WALLTIME, sizeof(struct avgtime), },
+	{ "ramp3", rpn_do_ramp3, },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

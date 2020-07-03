@@ -366,7 +366,7 @@ static void iiodev_data(int fd, void *dat)
 			if (el->sign && val32 & (1 << (el->bitsused-1)))
 				/* stuff highest bits */
 				val32 |= ~((1 << el->bitsused)-1);
-			valf = (val32+el->offset)*el->scale;
+			valf = (val32-el->offset)*el->scale;
 			break;
 		case 2:
 			memcpy(&val16, dev->dat+el->location, 2);
@@ -377,7 +377,7 @@ static void iiodev_data(int fd, void *dat)
 			if (el->sign && val32 & (1 << (el->bitsused-1)))
 				/* stuff highest bits */
 				val32 |= ~((1 << el->bitsused)-1);
-			valf = (val32+el->offset)*el->scale;
+			valf = (val32-el->offset)*el->scale;
 			break;
 		case 4:
 			memcpy(&val32, dev->dat+el->location, 4);
@@ -393,7 +393,7 @@ static void iiodev_data(int fd, void *dat)
 			if (!el->sign)
 				valf = ((uint32_t)val32+el->offset)*el->scale;
 			else
-				valf = (val32+el->offset)*el->scale;
+				valf = (val32-el->offset)*el->scale;
 			break;
 		case 8:
 			memcpy(&val64, dev->dat+el->location, 8);
@@ -416,7 +416,7 @@ static void iiodev_data(int fd, void *dat)
 			if (!el->sign)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
 			else
-				valf = (val64+el->offset)*el->scale;
+				valf = (val64-el->offset)*el->scale;
 			break;
 		default:
 			valf = NAN;

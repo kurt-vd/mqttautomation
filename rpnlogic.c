@@ -912,8 +912,8 @@ static struct lookup {
 
 	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },
-	{ "dayofweek", rpn_do_dayofweek, },
-	{ "abstime", rpn_do_abstime, },
+	{ "dayofweek", rpn_do_dayofweek, RPNFN_WALLTIME, },
+	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
 

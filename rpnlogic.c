@@ -745,6 +745,24 @@ static void rpn_do_strftime(struct stack *st, struct rpn *me)
 	rpn_push_str(st, buf, NAN);
 }
 
+/* sin/cos */
+static void rpn_do_degtorad(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, rpn_pop1(st)->d * M_2_PI / 360);
+}
+static void rpn_do_radtodeg(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, rpn_pop1(st)->d * 360 / M_2_PI);
+}
+static void rpn_do_sin(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, sin(rpn_pop1(st)->d));
+}
+static void rpn_do_cos(struct stack *st, struct rpn *me)
+{
+	rpn_push(st, cos(rpn_pop1(st)->d));
+}
+
 /* sun position */
 static void rpn_do_sun(struct stack *st, struct rpn *me)
 {
@@ -937,6 +955,11 @@ static struct lookup {
 	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
+
+	{ "degtorad", rpn_do_degtorad, },
+	{ "radtodeg", rpn_do_radtodeg, },
+	{ "sin", rpn_do_sin, },
+	{ "cos", rpn_do_cos, },
 
 	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
 	{ "sun3", rpn_do_sun3, },

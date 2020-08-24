@@ -82,9 +82,12 @@ static int mqtt_port = 1883;
 static const char *mqtt_suffix = "/logic";
 static const char *mqtt_setsuffix = "/setlogic";
 static const char *mqtt_onchangesuffix = "/onchange";
+static const char *mqtt_btns_suffix = "/button";
+static const char *mqtt_btnl_suffix = "/longbutton";
 static const char *mqtt_write_suffix = "/set";
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
+static double long_btn_delay = 1.0;
 
 /* state */
 static struct mosquitto *mosq;
@@ -103,9 +106,15 @@ struct item {
 
 	struct rpn *logic;
 	int logicflags;
+	int rpnflags;
 	struct rpn *onchange;
 	char *logic_payload;
 	char *onchange_payload;
+	int btnvalue;
+	struct rpn *btns;
+	struct rpn *btnl;
+	char *btns_payload;
+	char *btnl_payload;
 
 	/* cache topic misses during startup */
 	char *missingtopic;
@@ -180,6 +189,7 @@ static void mqttloghook(int level, const char *payload)
 
 /* mqtt cache */
 static int rpn_has_ref(struct rpn *rpn, const char *topic);
+static void on_btn_long(void *dat);
 
 static int topiccmp(const void *a, const void *b)
 {
@@ -362,7 +372,8 @@ static void drop_item(struct item *it, struct rpn **prpn)
 		rpn_free_chain(*prpn);
 		*prpn = NULL;
 	}
-	if (it->logic || it->onchange)
+	libt_remove_timeout(on_btn_long, it);
+	if (it->logic || it->onchange || it->btns || it->btnl)
 		return;
 	/* remove from list */
 	if (it->prev)
@@ -436,12 +447,14 @@ save_cache:
 	it->lastvalue = strdup(result);
 }
 
-static void do_onchanged(struct item *it)
+static void do_event_rpn(struct item *it, struct rpn *rpn)
 {
+	if (!rpn)
+		return;
 	curritem = it;
 	lastrpntopic = NULL;
 	rpn_stack_reset(&rpnstack);
-	rpn_run(&rpnstack, it->onchange);
+	rpn_run(&rpnstack, rpn);
 	curritem = NULL;
 }
 
@@ -452,7 +465,21 @@ void rpn_run_again(void *dat)
 	if (rpn_referred(it->logic, dat))
 		do_logic(it, NULL);
 	else if (rpn_referred(it->onchange, dat))
-		do_onchanged(it);
+		do_event_rpn(it, it->onchange);
+	else if (rpn_referred(it->btns, dat))
+		do_event_rpn(it, it->btns);
+	else if (rpn_referred(it->btnl, dat))
+		do_event_rpn(it, it->btnl);
+}
+
+static void on_btn_long(void *dat)
+{
+	struct item *it = dat;
+
+	mylog(LOG_INFO, "%s/button: long", it->topic);
+	do_event_rpn(it, it->btnl);
+	/* fake reverted value */
+	it->btnvalue = 0;
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -557,6 +584,54 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->onchange_payload = strdup(msg->payload);
 		mylog(LOG_INFO, "new onchange for %s", it->topic);
 		return;
+	} else if (test_suffix(msg->topic, mqtt_btns_suffix)) {
+		it = get_item(msg->topic, mqtt_btns_suffix, msg->payloadlen);
+		if (!it || !msg->payloadlen) {
+			if (it) {
+				myfree(it->btns_payload);
+				drop_item(it, &it->btns);
+			}
+			return;
+		}
+		if (!strcmp(it->btns_payload ?: "", msg->payload ?: "")) {
+			mylog(LOG_DEBUG, "identical %s for %s", mqtt_btns_suffix, it->topic);
+			return;
+		}
+		/* remove old logic */
+		rpn_unref(it->btns);
+		rpn_free_chain(it->btns);
+		/* prepare new info */
+		it->btns = rpn_parse(msg->payload, it);
+		rpn_resolve_relative(it->btns, it->topic);
+		rpn_ref(it->btns);
+		myfree(it->btns_payload);
+		it->btns_payload = strdup(msg->payload);
+		mylog(LOG_INFO, "new %s for %s", mqtt_btns_suffix, it->topic);
+		return;
+	} else if (test_suffix(msg->topic, mqtt_btnl_suffix)) {
+		it = get_item(msg->topic, mqtt_btnl_suffix, msg->payloadlen);
+		if (!it || !msg->payloadlen) {
+			if (it) {
+				myfree(it->btnl_payload);
+				drop_item(it, &it->btnl);
+			}
+			return;
+		}
+		if (!strcmp(it->btnl_payload ?: "", msg->payload ?: "")) {
+			mylog(LOG_DEBUG, "identical %s for %s", mqtt_btnl_suffix, it->topic);
+			return;
+		}
+		/* remove old logic */
+		rpn_unref(it->btnl);
+		rpn_free_chain(it->btnl);
+		/* prepare new info */
+		it->btnl = rpn_parse(msg->payload, it);
+		rpn_resolve_relative(it->btnl, it->topic);
+		rpn_ref(it->btnl);
+		myfree(it->btnl_payload);
+		it->btnl_payload = strdup(msg->payload);
+		mylog(LOG_INFO, "new %s for %s", mqtt_btnl_suffix, it->topic);
+		return;
 	}
 	/* find topic */
 	topic = get_topic(msg->topic, msg->payloadlen);
@@ -576,7 +651,31 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	it = get_item(msg->topic, "", 0);
 	if (it) {
 		if (!msg->retain && it->onchange)
-			do_onchanged(it);
+			do_event_rpn(it, it->onchange);
+		if (it->btns || it->btnl) {
+			int curr = strtoul((char *)msg->payload ?: "", NULL, 0);
+
+			if (curr && !it->btnvalue) {
+				/* rising edge */
+				if (it->btns && !it->btnl) {
+					/* immediate delivery */
+					mylog(LOG_INFO, "%s/button: immediate delivery", it->topic);
+					do_event_rpn(it, it->btns);
+				} else {
+					mylog(LOG_INFO, "%s/button: measure ...", it->topic);
+					/* wait for long-btn timeout */
+					libt_add_timeout(long_btn_delay, on_btn_long, it);
+				}
+			} else if (!curr && it->btnvalue) {
+				if (it->btnl) {
+					/* falling edge, fire short button, only if we were waiting for long button */
+					mylog(LOG_INFO, "%s/button: short", it->topic);
+					libt_remove_timeout(on_btn_long, it);
+					do_event_rpn(it, it->btns);
+				}
+			}
+			it->btnvalue = curr;
+		}
 		if (it->writetopic && it->lastvalue && !it->recvd) {
 			/* This is the first time we recv the main topic
 			 * of which we wrote /set already
@@ -709,6 +808,12 @@ int main(int argc, char *argv[])
 		break;
 	case 'c':
 		mqtt_onchangesuffix = optarg;
+		break;
+	case 'b':
+		mqtt_btns_suffix = optarg;
+		break;
+	case 'B':
+		mqtt_btnl_suffix = optarg;
 		break;
 	case 'w':
 		mqtt_write_suffix = optarg;

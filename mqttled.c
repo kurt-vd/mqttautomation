@@ -89,6 +89,9 @@ struct item {
 	int value;
 	int maxvalue;
 	int initialized;
+
+	int flags;
+		#define FL_SHELLY (1 << 0)
 };
 
 __attribute__((unused))
@@ -331,13 +334,21 @@ static void init_led(struct item *it)
 	if (it->redirwrtopic)
 		free(it->redirwrtopic);
 	it->redirwrtopic = NULL;
+	it->flags &= ~FL_SHELLY;
 	it->maxvalue = 1;
 
 	if (!strcmp(it->name, "...")) {
 		return;
+	} else if (!strncmp("shelly:", it->name, 7)) {
+		it->redirtopic = strdup(it->name+7);
+		asprintf(&it->redirwrtopic, "%s/command", it->redirtopic);
+		it->flags |= FL_SHELLY;
+		goto redirected;
+
 	} else if (!strncmp("redir:", it->name, 6)) {
 		it->redirtopic = strdup(it->name+6);
 		asprintf(&it->redirwrtopic, "%s%s", it->redirtopic, mqtt_write_suffix ?: "");
+redirected:
 		/* subscribe */
 		ret = mosquitto_subscribe(mosq, NULL, it->redirtopic, mqtt_qos);
 		if (ret)
@@ -371,6 +382,9 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 	if (!strcmp(newvalue, "toggle"))
 		newval = !it->value;
 
+	else if (forcelocal && (it->flags & FL_SHELLY))
+		newval = !strcmp(newvalue, "on");
+
 	else
 		newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
@@ -379,12 +393,18 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 	} else if (is_redir(it)) {
 		/* a redirecting led */
 		if (!forcelocal) {
+			if (it->flags & FL_SHELLY)
+				newvalue = newval ? "on" : "off";
+
 			/* redirect to remote led */
 			mylog(LOG_DEBUG, "%s > %s", it->redirwrtopic, newvalue ?: "''");
 			ret = mosquitto_publish(mosq, NULL, it->redirwrtopic, strlen(newvalue ?: ""), newvalue, mqtt_qos, 0);
 			if (ret < 0)
 				mylog(LOG_ERR, "mosquitto_publish %s: %s", it->redirwrtopic, mosquitto_strerror(ret));
 			return;
+		} else {
+			if (it->flags & FL_SHELLY)
+				newvalue = newval ? "1" : "0";
 		}
 
 	} else if (!it->sysfsdir) {

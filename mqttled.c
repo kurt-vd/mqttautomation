@@ -86,6 +86,7 @@ struct item {
 	char *redirwrtopic;
 	char *name;
 	char *sysfsdir;
+	int value;
 	int maxvalue;
 	int initialized;
 };
@@ -330,6 +331,7 @@ static void init_led(struct item *it)
 	if (it->redirwrtopic)
 		free(it->redirwrtopic);
 	it->redirwrtopic = NULL;
+	it->maxvalue = 1;
 
 	if (!strcmp(it->name, "...")) {
 		return;
@@ -365,7 +367,12 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 
 	if (!it->initialized)
 		libt_remove_timeout(led_initial_value, it);
-	newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
+
+	if (!strcmp(newvalue, "toggle"))
+		newval = !it->value;
+
+	else
+		newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
 	if (is_virtual(it)) {
 		/* do nothing, without backend */
@@ -417,7 +424,9 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 		free(dupstr);
 	}
 
+	it->value = newval;
 	if (!it->initialized || (republish && mqtt_write_suffix)) {
+		newvalue = mydtostr(newval * 1.0 / it->maxvalue);
 		it->initialized = 1;
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
 		mylog(LOG_DEBUG, "%s > %s", it->topic, newvalue ?: "''");

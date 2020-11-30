@@ -152,6 +152,105 @@ static inline struct rpn_el *rpn_n(struct stack *st, int idx)
 	return st->v+st->n+idx;
 }
 
+/* extract JSON */
+#include "jsmn/jsmn.h"
+static int match_tok(struct rpn *me, const char *needle, const char *json, jsmntok_t *t, const char *topic)
+{
+	int ntok, j, matched __attribute__((unused));
+	char *newtopic;
+	size_t len;
+
+	switch (t->type) {
+	case JSMN_PRIMITIVE:
+	case JSMN_STRING:
+		if (!strcmp(needle, topic)) {
+			/* matched */
+			if (me->constvalue)
+				free(me->constvalue);
+			me->constvalue = strndup(json+t->start, t->end - t->start);
+			matched = 1;
+		} else {
+			matched = 0;
+		}
+		//printf("%s\t%c\t%.*s\n", topic, matched ? '*' : ' ', t->end - t->start, json + t->start);
+		return 1;
+	case JSMN_OBJECT:
+		newtopic = NULL;
+		len = 0;
+		ntok = 1;
+		for (j = 0; j < t->size; ++j) {
+			if (t[ntok].type != JSMN_STRING)
+				mylog(LOG_ERR, "property with non-string name");
+			if (strlen(topic) + t[ntok].end - t[ntok].start + 1 > len) {
+				len = (strlen(topic) + t[ntok].end - t[ntok].start + 1 + 128) & ~127;
+				newtopic = realloc(newtopic, len);
+				if (!newtopic)
+					mylog(LOG_ERR, "realloc %li: %s", (long)len, ESTR(errno));
+			}
+			sprintf(newtopic, "%s%s%.*s", topic, topic[0] ? "/" : "", t[ntok].end - t[ntok].start, json + t[ntok].start);
+			++ntok;
+			ntok += match_tok(me, needle, json, t+ntok, newtopic);
+		}
+		if (newtopic)
+			free(newtopic);
+		return ntok;
+	case JSMN_ARRAY:
+		newtopic = malloc(strlen(topic) + 16);
+		ntok = 1;
+		for (j = 0; j < t->size; ++j) {
+			sprintf(newtopic, "%s/%i", topic, j);
+			ntok += match_tok(me, needle, json, t+ntok, newtopic);
+		}
+		free(newtopic);
+		return ntok;
+	default:
+		return 0;
+	}
+}
+
+static void rpn_do_json(struct stack *st, struct rpn *me)
+{
+	const char *member = rpn_pop1(st)->a;
+	const char *json = rpn_pop1(st)->a;
+
+	if (!json || !member)
+		goto failed;
+
+	/* start parsing */
+	jsmn_parser prs;
+	static jsmntok_t *tok;
+	static size_t tokcnt;
+	int len, ret;
+
+	len = strlen(json);
+	jsmn_init(&prs);
+	ret = jsmn_parse(&prs, json, len, NULL, 0);
+	if (ret < 0) {
+		st->errnum = -ret;
+		goto failed;
+	}
+
+	jsmn_init(&prs);
+	if (ret > tokcnt) {
+		tokcnt = (ret + 7) & ~7;
+		tok = realloc(tok, sizeof(*tok)*tokcnt);
+	}
+	ret = jsmn_parse(&prs, json, len, tok, tokcnt);
+	if (ret < 0) {
+		st->errnum = -ret;
+		goto failed;
+	}
+	if (me->constvalue)
+		free(me->constvalue);
+	me->constvalue = NULL;
+	match_tok(me, member, json, tok, "");
+	rpn_push_str(st, me->constvalue, mystrtod(me->constvalue ?: "nan", NULL));
+	return;
+
+failed:
+	rpn_push_str(st, "", NAN);
+}
+
 /* algebra */
 static void rpn_do_plus(struct stack *st, struct rpn *me)
 {
@@ -921,6 +1020,7 @@ static struct lookup {
 
 	{ "dup", rpn_do_dup, },
 	{ "swap", rpn_do_swap, },
+	{ "json", rpn_do_json, },
 	{ "?:", rpn_do_ifthenelse, },
 
 	{ "min", rpn_do_min, },

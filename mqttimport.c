@@ -205,13 +205,102 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	}
 }
 
+/* config file read */
+char *read_config_line(const char *file)
+{
+	static FILE *fp;
+	static const char *savedfile;
+	static int linenr;
+
+	static char *line = NULL, *buff = NULL;
+	static size_t linesize = 0, buffsize = 0, linefill = 0;
+	int ret, bufffill;
+
+	if (file) {
+		/* new file defined */
+		if (fp)
+			fclose(fp);
+		if (!strcmp(file, "-"))
+			fp = stdin;
+		else {
+			fp = fopen(file, "r");
+			if (!fp)
+				mylog(LOG_ERR, "fopen %s r: %s", file, ESTR(errno));
+		}
+		savedfile = file;
+		/* reset cache */
+		linefill = 0;
+		linenr = 0;
+	} else if (!fp)
+		/* need a file */
+		return NULL;
+
+	bufffill = 0;
+	for (;;) {
+		if (linefill) {
+			/* move line to save buffer */
+			if (linefill + bufffill + 1 > buffsize) {
+				buffsize = (linefill + bufffill + 1 + 128) & ~(128-1);
+				buff = realloc(buff, buffsize);
+				if (!buff)
+					mylog(LOG_ERR, "realloc reading %s:%i: %s",
+							savedfile, linenr, ESTR(errno));
+			}
+			char *realline;
+			for (realline = line; strchr(" \t", *realline); ++realline);
+			if (realline > line) {
+				/* step back 1 char of whitespace */
+				--realline;
+				/* enforce ' ' over '\t' */
+				*realline = ' ';
+			}
+			strcpy(buff + bufffill, realline);
+			bufffill += linefill - (realline - line);
+			linefill = 0;
+		}
+
+		ret = getline(&line, &linesize, fp);
+		if (ret < 0 && feof(fp)) {
+			fclose(fp);
+			fp = NULL;
+			return (bufffill && *buff != '#') ? buff : NULL;
+		} else if (ret < 0)
+			mylog(LOG_ERR, "getline %s:%i: %s", savedfile, linenr, ESTR(errno));
+
+		++linenr;
+
+		if (ret && line[ret-1] == '\n')
+			/* cut trailing newline */
+			line[--ret] = 0;
+		if (ret && line[ret-1] == '\r')
+			/* cut trailing carriage return */
+			line[--ret] = 0;
+
+		/* don't forget this line */
+		linefill = ret;
+
+		if (strchr(" \t", *line))
+			/* line continued */
+			continue;
+
+		if (bufffill) {
+			/* a new line has started, and something was cached */
+			if (*buff == '#')
+				/* cached line was comment, restart again */
+				bufffill = 0;
+			else
+				return buff;
+		}
+		/* new line started, no cache. Read on to see if next line continues */
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int opt, ret;
 	char *str, *tok;
 	char mqtt_name[32];
 	char *line;
-	size_t linesize;
 	struct item *it;
 
 	setlocale(LC_ALL, "");
@@ -283,20 +372,9 @@ printhelp:
 		mylog(LOG_ERR, "mosquitto_connect %s:%i: %s", mqtt_host, mqtt_port, mosquitto_strerror(ret));
 
 	/* parse input file */
-	line = NULL;
-	linesize = 0;
-	while (1) {
-		ret = getline(&line, &linesize, stdin);
-		if (ret < 0) {
-			if (feof(stdin))
-				break;
-			mylog(LOG_ERR, "readline <stdin>: %s", ESTR(errno));
-		}
-		if (line[ret-1] == '\n')
-			/* cut newline */
-			line[ret-1] = 0;
+	for (line = read_config_line("-"); line; line = read_config_line(NULL)) {
 		tok = strtok(line, " \t");
-		if (line[0] == '#' || !tok || !strlen(tok))
+		if (!tok || !strlen(tok))
 			/* ignore such line */
 			continue;
 		it = get_item(tok);

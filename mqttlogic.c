@@ -661,7 +661,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 					/* immediate delivery */
 					mylog(LOG_INFO, "%s/button: immediate delivery", it->topic);
 					do_event_rpn(it, it->btns);
-				} else {
+				} else if (it->btnl) {
 					mylog(LOG_INFO, "%s/button: measure ...", it->topic);
 					/* wait for long-btn timeout */
 					libt_add_timeout(long_btn_delay, on_btn_long, it);

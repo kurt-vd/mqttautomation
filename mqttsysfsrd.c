@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <syslog.h>
+#include <wordexp.h>
 #include <sys/stat.h>
 #include <mosquitto.h>
 
@@ -217,6 +218,40 @@ static void parse_map(struct item *it)
 	}
 }
 
+static const char *const we_err[] = {
+	[WRDE_BADCHAR] = "Illegal occurrence of newline or one of |, &, ;, <, >, (, ), {, }",
+	[WRDE_BADVAL] = "An undefined shell variable was referenced, with WRDE_UNDEF",
+	[WRDE_CMDSUB] = "Command substitution occurred with WRDE_NOCMD",
+	[WRDE_NOSPACE] = "Out of memory",
+	[WRDE_SYNTAX] = "Shell syntax error, such as unbalanced parentheses or unmatched quotes",
+};
+
+static int find_path(struct item *it, const char *pattern)
+{
+	int ret;
+	char *path;
+	wordexp_t we = {};
+
+	ret = wordexp(pattern, &we, WRDE_NOCMD | WRDE_REUSE);
+	if (ret) {
+		mylog(LOG_WARNING, "'%s': %s", pattern, we_err[ret] ?: "uknonwn error");
+		return -1;
+	}
+	if (we.we_wordc < 1) {
+		mylog(LOG_WARNING, "'%s': no result", pattern);
+		return -1;
+	}
+	path = we.we_wordv[0];
+	if (stat(path, &(struct stat){}) != 0) {
+		mylog(LOG_WARNING, "'%s' failed: %s", path, ESTR(errno));
+		return -1;
+	}
+	if (it->sysfs)
+		free(it->sysfs);
+	it->sysfs = strdup(path);
+	return 0;
+}
+
 /* read hw */
 static inline int err_is_new(struct item *it, int errnum)
 {
@@ -338,10 +373,11 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		value = strtok(NULL, " \t");
 		if (!value)
 			mylog(LOG_INFO, "no sysfs path defined for %s", it->topic);
-		if (it->sysfs)
-			free(it->sysfs);
-		it->sysfs = strdup(value ?: "");
-
+		if (find_path(it, value ?: "") < 0) {
+			mylog(LOG_NOTICE, "%s: no path '%s'", it->topic, value ?: "");
+			drop_item(it);
+			return;
+		}
 
 		for (;;) {
 			key = strtok(NULL, " \t");

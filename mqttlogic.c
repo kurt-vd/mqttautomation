@@ -227,7 +227,7 @@ struct topic *get_topic(const char *name, int create)
 static struct topic *lastrpntopic;
 int rpn_env_isnew(void)
 {
-	return lastrpntopic->isnew;
+	return lastrpntopic && lastrpntopic->isnew;
 }
 
 const char *rpn_lookup_env(const char *name, struct rpn *rpn)

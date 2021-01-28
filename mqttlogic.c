@@ -42,6 +42,8 @@ static const char help_msg[] =
 	" -s, --suffix=STR	Give MQTT topic suffix for scripts (default '/logic')\n"
 	" -S, --setsuffix=STR	Give MQTT topic suffix for scripts that write to /set (default '/setlogic')\n"
 	" -c, --onchange=STR	Give MQTT topic suffix for onchange handler scripts (default '/onchange')\n"
+	" -b, --button=STR	Give MQTT topic suffix for button handler scripts (default '/button')\n"
+	" -B, --longbutton=STR	Give MQTT topic suffix for longbutton handler scripts (default '/longbutton')\n"
 	" -w, --write=STR	Give MQTT topic suffix for writing the topic on /logicw (default /set)\n"
 	"\n"
 	"Paramteres\n"
@@ -60,6 +62,8 @@ static struct option long_opts[] = {
 	{ "Suffix", required_argument, NULL, 'S', },
 	{ "onchange", required_argument, NULL, 'c', },
 	{ "write", required_argument, NULL, 'w', },
+	{ "button", required_argument, NULL, 'b', },
+	{ "longbutton", required_argument, NULL, 'B', },
 
 	{ },
 };
@@ -67,7 +71,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?nm:s:S:c:w:";
+static const char optstring[] = "Vv?nm:s:S:c:w:b:B:";
 
 /* logging */
 static int loglevel = LOG_WARNING;

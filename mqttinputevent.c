@@ -37,6 +37,7 @@ static const char help_msg[] =
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for spec (default '/inputhw')\n"
 	" -d, --device=DEVICE	Process input events from DEVICE\n"
+	" -p, --prefix=PREFIX	MQTT path to publish events\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -51,6 +52,7 @@ static struct option long_opts[] = {
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
 	{ "device", required_argument, NULL, 'd', },
+	{ "prefix", required_argument, NULL, 'p', },
 
 	{ },
 };
@@ -58,7 +60,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?m:s:d:";
+static const char optstring[] = "Vv?m:s:d:p:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -73,6 +75,7 @@ static const char *mqtt_suffix = "/inputhw";
 static int mqtt_suffixlen = 8;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
+static char *mqtt_prefix = "io/input/";
 static const char mqtt_unknown_topic[] = "unhandled/inputevent";
 
 static char *inputdev;
@@ -323,6 +326,10 @@ int main(int argc, char *argv[])
 		inputdev = optarg;
 		break;
 
+	case 'p':
+		mqtt_prefix = *optarg ? optarg : NULL;
+		break;
+
 	default:
 		fprintf(stderr, "unknown option '%c'\n", opt);
 	case '?':
@@ -394,6 +401,17 @@ int main(int argc, char *argv[])
 						continue;
 					sprintf(valuestr, "%i", evs[j].value);
 					pubitem(it, valuestr);
+					++cnt;
+				}
+				if (mqtt_prefix && evs[j].type == EV_KEY) {
+					char *topic;
+
+					asprintf(&topic, "%s/key/%u", mqtt_prefix, evs[j].code);
+					sprintf(valuestr, "%i", evs[j].value);
+					ret = mosquitto_publish(mosq, NULL, topic, strlen(valuestr), valuestr, mqtt_qos, 0);
+					if (ret < 0)
+						mylog(LOG_ERR, "mosquitto_publish %s: %s", topic, mosquitto_strerror(ret));
+					free(topic);
 					++cnt;
 				}
 				if (!cnt) {

@@ -75,7 +75,7 @@ static const char *mqtt_suffix = "/inputhw";
 static int mqtt_suffixlen = 8;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
-static char *mqtt_prefix = "io/input/";
+static char *mqtt_prefix = "io/input";
 static const char mqtt_unknown_topic[] = "unhandled/inputevent";
 
 static char *inputdev;

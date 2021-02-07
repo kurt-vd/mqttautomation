@@ -852,23 +852,23 @@ static void rpn_do_delaytostr(struct stack *st, struct rpn *me)
 	double value = rpn_pop1(st)->d;
 
 	if (str > buf || value > 2*7*24*60*60) {
-		str += sprintf(str, "%.0lfw", value / 7*24*60*60);
+		str += sprintf(str, "%.0fw", value / (7*24*60*60));
 		value = fmod(value, 7*24*60*60);
 	}
 	if (str > buf || value > 1.5*24*60*60) {
-		str += sprintf(str, "%.0lfd", value / 24*60*60);
+		str += sprintf(str, "%.0fd", value / (24*60*60));
 		value = fmod(value, 24*60*60);
 	}
 	if (str > buf || value > 70*60) {
-		str += sprintf(str, "%.0lfh", value / 60*60);
+		str += sprintf(str, "%.0fh", value / (60*60));
 		value = fmod(value, 60*60);
 	}
 	if (str > buf || value > 60) {
-		str += sprintf(str, "%.0lfm", value / 60);
+		str += sprintf(str, "%.0fm", value / (60));
 		value = fmod(value, 60);
 	}
 	if (str > buf || value > 0) {
-		str += sprintf(str, "%.0lfs", value);
+		str += sprintf(str, "%.0fs", value);
 		value = fmod(value, 1);
 	}
 	rpn_push_str(st, buf, NAN);

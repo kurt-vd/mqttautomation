@@ -844,6 +844,36 @@ static void rpn_do_strftime(struct stack *st, struct rpn *me)
 	rpn_push_str(st, buf, NAN);
 }
 
+static void rpn_do_delaytostr(struct stack *st, struct rpn *me)
+{
+	static char buf[128];
+	char *str = buf;
+
+	double value = rpn_pop1(st)->d;
+
+	if (str > buf || value > 2*7*24*60*60) {
+		str += sprintf(str, "%.0lfw", value / 7*24*60*60);
+		value = fmod(value, 7*24*60*60);
+	}
+	if (str > buf || value > 1.5*24*60*60) {
+		str += sprintf(str, "%.0lfd", value / 24*60*60);
+		value = fmod(value, 24*60*60);
+	}
+	if (str > buf || value > 70*60) {
+		str += sprintf(str, "%.0lfh", value / 60*60);
+		value = fmod(value, 60*60);
+	}
+	if (str > buf || value > 60) {
+		str += sprintf(str, "%.0lfm", value / 60);
+		value = fmod(value, 60);
+	}
+	if (str > buf || value > 0) {
+		str += sprintf(str, "%.0lfs", value);
+		value = fmod(value, 1);
+	}
+	rpn_push_str(st, buf, NAN);
+}
+
 /* sin/cos */
 static void rpn_do_degtorad(struct stack *st, struct rpn *me)
 {
@@ -1055,6 +1085,7 @@ static struct lookup {
 	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
+	{ "delaytostr", rpn_do_delaytostr, },
 
 	{ "degtorad", rpn_do_degtorad, },
 	{ "radtodeg", rpn_do_radtodeg, },

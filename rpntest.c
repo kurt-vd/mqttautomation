@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 #include <locale.h>
+#include <poll.h>
 #include <syslog.h>
 
 #include "lib/libt.h"
@@ -67,8 +68,8 @@ int main(int argc, char *argv[])
 
 	my_rpn_run(rpn);
 	for (; libt_get_waittime() >= 0;) {
+		poll(NULL, 0, libt_get_waittime());
 		libt_flush();
-		sleep(1);
 	}
 	return 0;
 }

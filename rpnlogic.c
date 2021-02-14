@@ -468,6 +468,69 @@ static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 	rpn_push(st, avg->out);
 }
 
+struct slope {
+	double out;
+	double setpoint;
+	double step;
+	double delay;
+	int busy;
+};
+static void on_slope_step(void *dat);
+
+static void slope_step(void *dat)
+{
+	struct rpn *me = dat;
+	struct slope *priv = rpn_priv(me);
+	double step, diff;
+
+	step = priv->step;
+	diff = priv->setpoint - priv->out;
+	if (fabs(diff) < step)
+		step = fabs(diff);
+
+	if (priv->out < priv->setpoint)
+		priv->out += step;
+	else
+		priv->out -= step;
+	if (dblcmp(priv->out, priv->setpoint, 0.01))
+		libt_add_timeout(priv->delay, on_slope_step, me);
+	else
+		priv->busy = 0;
+}
+
+static void on_slope_step(void *dat)
+{
+	slope_step(dat);
+	rpn_run_again(dat);
+}
+
+static void rpn_do_slope(struct stack *st, struct rpn *me)
+{
+	struct slope *priv = rpn_priv(me);
+	double curr, step, delay;
+
+	delay = rpn_pop1(st)->d;
+	step = rpn_pop1(st)->d;
+	curr = rpn_pop1(st)->d;
+	priv->setpoint = rpn_pop1(st)->d;
+
+	if (!priv->busy && dblcmp(curr, priv->setpoint, 0.005)) {
+		priv->out = curr;
+		priv->step = step;
+		priv->delay = delay;
+
+		if (isnan(priv->out))
+			priv->out = 0;
+
+		/* run slope */
+		priv->busy = 1;
+		me->timeout = on_slope_step;
+		slope_step(me);
+	}
+
+	rpn_push(st, priv->out);
+}
+
 /* bitwise */
 static void rpn_do_bitand(struct stack *st, struct rpn *me)
 {
@@ -1064,6 +1127,7 @@ static struct lookup {
 	{ "throttle", rpn_do_debounce2, },
 	{ "avgtime", rpn_do_avgtime, RPNFN_WALLTIME, sizeof(struct avgtime), },
 	{ "ramp3", rpn_do_ramp3, },
+	{ "slope", rpn_do_slope, 0, sizeof(struct slope), },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

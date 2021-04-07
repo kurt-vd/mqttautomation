@@ -468,6 +468,137 @@ static void rpn_do_avgtime(struct stack *st, struct rpn *me)
 	rpn_push(st, avg->out);
 }
 
+struct running {
+	struct sample {
+		double t;
+		double v;
+	} *table;
+	int tsize, tfill, told;
+};
+
+static void free_running(struct rpn *me)
+{
+	struct running *run = rpn_priv(me);
+
+	if (run->table)
+		free(run->table);
+}
+
+static void rpn_collect_running(struct rpn *me, double now, double period, double value)
+{
+	struct running *run = rpn_priv(me);
+	double from;
+	int j;
+
+	from = now - period;
+
+	/* clean history */
+	for (j = run->told; j < run->tfill; ++j) {
+		if (run->table[j].t > from)
+			break;
+	}
+	if (j > run->told)
+		--j;
+	run->told = j;
+
+	/* add storage */
+	if (run->tfill >= run->tsize && run->told) {
+		memmove(run->table, run->table+run->told,
+				(run->tfill-run->told)*sizeof(run->table[0]));
+		run->tfill -= run->told;
+		run->told = 0;
+	}
+	if (run->tfill >= run->tsize) {
+		run->tsize = run->tsize*2 ?: 32;
+		run->table = realloc(run->table, sizeof(run->table[0])*run->tsize);
+	}
+
+	run->table[run->tfill].t = now;
+	run->table[run->tfill].v = value;
+	++run->tfill;
+}
+
+static void rpn_do_running_avg(struct stack *st, struct rpn *me)
+{
+	struct running *run = rpn_priv(me);
+	double v, period;
+	double now, from;
+	int j;
+	double sum;
+
+	period = rpn_pop1(st)->d;
+	v = rpn_pop1(st)->d;
+
+	now = libt_now();
+	from = now - period;
+
+	rpn_collect_running(me, now, period, v);
+
+	if (from < run->table[run->told].t) {
+		from = run->table[run->told].t;
+		period = now - from;
+	}
+	v = run->table[run->told].v;
+	if (isnan(v))
+		v = 0;
+	sum = 0;
+	for (j = run->told+1; j < run->tfill; ++j) {
+		if (!isnan(v))
+			sum += (run->table[j].t - from)*v;
+		from = run->table[j].t;
+		v = run->table[j].v;
+	}
+mylog(LOG_INFO, "avg %i..%i: %lf/%lf", run->told+1, run->tfill, sum, period);
+
+	rpn_push(st, sum/period);
+}
+
+static void rpn_do_running_min(struct stack *st, struct rpn *me)
+{
+	struct running *run = rpn_priv(me);
+	double v, period;
+	double now;
+	int j;
+
+	period = rpn_pop1(st)->d;
+	v = rpn_pop1(st)->d;
+
+	now = libt_now();
+
+	rpn_collect_running(me, now, period, v);
+
+	v = run->table[run->told].v;
+	for (j = run->told+1; j < run->tfill; ++j) {
+		if (!(run->table[j].v > v))
+			v = run->table[j].v;
+	}
+
+	rpn_push(st, v);
+}
+
+static void rpn_do_running_max(struct stack *st, struct rpn *me)
+{
+	struct running *run = rpn_priv(me);
+	double v, period;
+	double now;
+	int j;
+
+	period = rpn_pop1(st)->d;
+	v = rpn_pop1(st)->d;
+
+	now = libt_now();
+
+	rpn_collect_running(me, now, period, v);
+
+	v = run->table[run->told].v;
+	for (j = run->told+1; j < run->tfill; ++j) {
+		if (!(run->table[j].v < v))
+			v = run->table[j].v;
+	}
+
+	rpn_push(st, v);
+}
+
 struct slope {
 	double out;
 	double setpoint;
@@ -1126,6 +1257,12 @@ static struct lookup {
 	{ "hyst", rpn_do_hyst2, },
 	{ "throttle", rpn_do_debounce2, },
 	{ "avgtime", rpn_do_avgtime, RPNFN_WALLTIME, sizeof(struct avgtime), },
+	{ "ravg", rpn_do_running_avg, 0, sizeof(struct running),
+		.free = free_running, },
+	{ "rmin", rpn_do_running_min, 0, sizeof(struct running),
+		.free = free_running, },
+	{ "rmax", rpn_do_running_max, 0, sizeof(struct running),
+		.free = free_running, },
 	{ "ramp3", rpn_do_ramp3, },
 	{ "slope", rpn_do_slope, 0, sizeof(struct slope), },
 

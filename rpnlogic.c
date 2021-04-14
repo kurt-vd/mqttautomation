@@ -605,14 +605,48 @@ struct slope {
 	double step;
 	double delay;
 	int busy;
+	double *pos;
+	int npos, spos;
 };
 static void on_slope_step(void *dat);
+
+static void free_slope(struct rpn *me)
+{
+	struct slope *priv = rpn_priv(me);
+
+	if (priv->pos)
+		free(priv->pos);
+}
 
 static void slope_step(void *dat)
 {
 	struct rpn *me = dat;
 	struct slope *priv = rpn_priv(me);
 	double step, diff;
+	int j;
+
+	if (priv->pos && (priv->setpoint < priv->out)) {
+		for (j = priv->npos-1; j >= 0; --j) {
+			if (priv->pos[j] < priv->out) {
+				priv->out = priv->pos[j];
+				libt_add_timeout(priv->delay, on_slope_step, me);
+				return;
+			}
+		}
+		priv->busy = 0;
+		return;
+
+	} else if (priv->pos && (priv->setpoint > priv->out)) {
+		for (j = 0; j < priv->npos; ++j) {
+			if (priv->pos[j] > priv->out) {
+				priv->out = priv->pos[j];
+				libt_add_timeout(priv->delay, on_slope_step, me);
+				return;
+			}
+		}
+		priv->busy = 0;
+		return;
+	}
 
 	step = priv->step;
 	diff = priv->setpoint - priv->out;
@@ -633,6 +667,20 @@ static void on_slope_step(void *dat)
 {
 	slope_step(dat);
 	rpn_run_again(dat);
+}
+
+static void parse_slope(struct rpn *me, char *str)
+{
+	struct slope *priv = rpn_priv(me);
+	char *tok;
+
+	for (tok = strtok(str, ","); tok; tok = strtok(NULL, ",")) {
+		if (priv->npos >= priv->spos) {
+			priv->spos += 16;
+			priv->pos = realloc(priv->pos, sizeof(*priv->pos)*priv->spos);
+		}
+		priv->pos[priv->npos++] = mystrtod(tok, NULL);
+	}
 }
 
 static void rpn_do_slope(struct stack *st, struct rpn *me)
@@ -1265,7 +1313,8 @@ static struct lookup {
 	{ "rmax", rpn_do_running_max, 0, sizeof(struct running),
 		.free = free_running, },
 	{ "ramp3", rpn_do_ramp3, },
-	{ "slope", rpn_do_slope, 0, sizeof(struct slope), },
+	{ "slope", rpn_do_slope, 0, sizeof(struct slope),
+		.free = free_slope, .parse = parse_slope, },
 
 	{ "ondelay", rpn_do_ondelay, },
 	{ "offdelay", rpn_do_offdelay, },

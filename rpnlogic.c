@@ -1218,6 +1218,7 @@ static struct lookup {
 	int flags;
 	int privsize;
 	void (*free)(struct rpn *);
+	void (*parse)(struct rpn *, char *str);
 } const lookups[] = {
 	{ "+", rpn_do_plus, },
 	{ "-", rpn_do_minus, },
@@ -1304,9 +1305,19 @@ static struct lookup {
 	{ "", },
 };
 
-static const struct lookup *do_lookup(const char *tok)
+static const struct lookup *do_lookup(const char *tok, char **pendp)
 {
 	const struct lookup *lookup;
+	char *endp;
+
+	if (!pendp)
+		pendp = &endp;
+
+	*pendp = strchr(tok, ',');
+	if (*pendp) {
+		**pendp = 0;
+		(*pendp)++;
+	}
 
 	for (lookup = lookups; lookup->str[0]; ++lookup) {
 		if (!strcmp(lookup->str, tok))
@@ -1416,12 +1427,14 @@ int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 				rpn->run = rpn_do_writeenv;
 				break;
 			}
-		} else if ((lookup = do_lookup(tok)) != NULL) {
+		} else if ((lookup = do_lookup(tok, &endp)) != NULL) {
 			rpn->run = lookup->run;
 			rpn->flags = lookup->flags;
 			rpn->lookup = lookup;
 			if (lookup->privsize)
 				rpn = rpn_grow(rpn, lookup->privsize);
+			if (lookup->parse)
+				lookup->parse(rpn, endp);
 		} else if ((constant = do_constant(tok)) != NULL) {
 			rpn->run = rpn_do_const;
 			rpn->value = constant->value;

@@ -1119,11 +1119,11 @@ static void rpn_do_delaytostr(struct stack *st, struct rpn *me)
 /* sin/cos */
 static void rpn_do_degtorad(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * M_2_PI / 360);
+	rpn_push(st, rpn_pop1(st)->d * M_PI / 180);
 }
 static void rpn_do_radtodeg(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * 360 / M_2_PI);
+	rpn_push(st, rpn_pop1(st)->d * 180 / M_PI);
 }
 static void rpn_do_sin(struct stack *st, struct rpn *me)
 {

@@ -1,6 +1,7 @@
 PROGS	= mqttinputevent
 PROGS	+= mqtt1wtemp
 PROGS	+= mqttapa102led
+PROGS	+= mqttbridge
 PROGS	+= mqttiio
 PROGS	+= mqttimport
 PROGS	+= mqttled
@@ -21,7 +22,7 @@ PREFIX	= /usr/local
 CC	= gcc
 CFLAGS	= -Wall
 CPPFLAGS= -D_GNU_SOURCE
-LDLIBS	= -lmosquitto
+LDLIBS	= -lm -lmosquitto
 INSTOPTS= -s
 
 VERSION := $(shell git describe --tags --always)
@@ -33,6 +34,10 @@ CPPFLAGS += -DVERSION=\"$(VERSION)\"
 mqtt1wtemp: common.o lib/libt.o
 
 mqttapa102led: common.o lib/libt.o
+
+mqttbridge: common.o lib/libt.o \
+	lib/libe.o \
+	lib/liburi.o
 
 mqttiio: LDLIBS+= -lm
 mqttiio: common.o lib/libt.o lib/libe.o

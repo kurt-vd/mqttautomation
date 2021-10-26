@@ -528,29 +528,20 @@ static void rpn_do_running_avg(struct stack *st, struct rpn *me)
 
 	period = rpn_pop1(st)->d;
 	v = rpn_pop1(st)->d;
-
 	now = libt_now();
-	from = now - period;
 
 	rpn_collect_running(me, now, period, v);
 
-	if (from < run->table[run->told].t) {
-		from = run->table[run->told].t;
-		period = now - from;
-	}
-	v = run->table[run->told].v;
-	if (isnan(v))
-		v = 0;
 	sum = 0;
 	for (j = run->told+1; j < run->tfill; ++j) {
-		if (!isnan(v))
-			sum += (run->table[j].t - from)*v;
-		from = run->table[j].t;
-		v = run->table[j].v;
+		if (!isnan(run->table[j-1].v))
+			sum += (run->table[j].t - run->table[j-1].t) * run->table[j-1].v;
 	}
-mylog(LOG_INFO, "avg %i..%i: %lf/%lf", run->told+1, run->tfill, sum, period);
+	/* append current slice */
+	if (!isnan(run->table[j-1].v))
+		sum += (now - run->table[j-1].t) * run->table[j-1].v;
 
-	rpn_push(st, sum/period);
+	rpn_push(st, sum/(now - run->table[run->told].t));
 }
 
 static void rpn_do_running_min(struct stack *st, struct rpn *me)

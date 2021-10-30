@@ -522,7 +522,7 @@ static void rpn_do_running_avg(struct stack *st, struct rpn *me)
 {
 	struct running *run = rpn_priv(me);
 	double v, period;
-	double now, from;
+	double now;
 	int j;
 	double sum;
 
@@ -1433,7 +1433,6 @@ static char *mystrtok(char *newstr, const char *sep)
 	return savedstr;
 }
 
-static const char digits[] = "0123456789";
 int rpn_parse_append(const char *cstr, struct rpn **proot, void *dat)
 {
 	char *savedstr;

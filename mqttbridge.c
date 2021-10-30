@@ -313,13 +313,21 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 
 	int subopts = MQTT_SUB_OPT_NO_LOCAL | MQTT_SUB_OPT_RETAIN_AS_PUBLISHED;
 	if (!argv || !*argv) {
-		ret = mosquitto_subscribe_v5(h->mosq, NULL, "#", h->qos, subopts, NULL);
+		/* use 1 catch-all filter */
+		argv = (char *[]){ "#", NULL, };
+	}
+	for (; *argv; ++argv) {
+		char *subtopic;
+
+		if (h->prefix)
+			asprintf(&subtopic, "%s%s", h->prefix, *argv);
+		else
+			subtopic = *argv;
+		ret = mosquitto_subscribe_v5(h->mosq, NULL, subtopic, h->qos, subopts, NULL);
 		if (ret)
-			mylog(LOG_ERR, "[%s] subscribe '#': %s", h->name, mosquitto_strerror(ret));
-	} else for (; *argv; ++argv) {
-		ret = mosquitto_subscribe_v5(h->mosq, NULL, *argv, h->qos, subopts, NULL);
-		if (ret)
-			mylog(LOG_ERR, "[%s] subscribe %s: %s", h->name, *argv, mosquitto_strerror(ret));
+			mylog(LOG_ERR, "[%s] subscribe %s: %s", h->name, subtopic, mosquitto_strerror(ret));
+		if (h->prefix)
+			free(subtopic);
 	}
 }
 static int mqtt_idle(struct host *h)

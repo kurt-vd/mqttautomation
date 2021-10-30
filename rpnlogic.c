@@ -1107,6 +1107,16 @@ static void rpn_do_delaytostr(struct stack *st, struct rpn *me)
 	rpn_push_str(st, buf, NAN);
 }
 
+static void rpn_do_fmtvalue(struct stack *st, struct rpn *me)
+{
+	static char buf[128];
+	struct rpn_el *fmt = rpn_pop1(st);
+	struct rpn_el *v = rpn_pop1(st);
+
+	snprintf(buf, sizeof(buf), fmt->a, v->d);
+	rpn_push_str(st, buf, v->d);
+}
+
 /* sin/cos */
 static void rpn_do_degtorad(struct stack *st, struct rpn *me)
 {
@@ -1328,6 +1338,8 @@ static struct lookup {
 	{ "uptime", rpn_do_uptime, },
 	{ "strftime", rpn_do_strftime, },
 	{ "delaytostr", rpn_do_delaytostr, },
+
+	{ "printf", rpn_do_fmtvalue, },
 
 	{ "degtorad", rpn_do_degtorad, },
 	{ "radtodeg", rpn_do_radtodeg, },

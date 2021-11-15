@@ -171,19 +171,6 @@ struct item {
 };
 #define posctrl(it) (!isnan(it->reqval))
 
-static const char *const states[] = {
-	[ST_CLOSED] = "closed",
-	[ST_OPEN] = "open",
-	[ST_CSTOPPED] = "closing-stopped",
-	[ST_OSTOPPED] = "open-stopped",
-	[ST_CSTART] = "close-starting",
-	[ST_OSTART] = "open-starting",
-	[ST_CLOSING] = "closing",
-	[ST_OPENING] = "opening",
-	[ST_CMARGIN] = "closing-eol",
-	[ST_OMARGIN] = "opening-eol",
-};
-
 static const int statedirs[] = {
 	[ST_CSTART] = -1,
 	[ST_OSTART] = 1,

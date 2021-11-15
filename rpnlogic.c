@@ -1021,6 +1021,20 @@ static void rpn_do_isnew(struct stack *st, struct rpn *me)
 	rpn_push(st, rpn_env_isnew());
 }
 
+static void rpn_do_setreset(struct stack *st, struct rpn *me)
+{
+	struct rpn_el *inreset = rpn_pop1(st);
+	struct rpn_el *inset = rpn_pop1(st);
+
+	if (rpn_toint(inset->d))
+		me->cookie = 1;
+	else if (rpn_toint(inreset->d))
+		me->cookie = 0;
+
+	rpn_push(st, me->cookie);
+}
+
+
 /* date/time functions */
 static void rpn_do_wakeup(struct stack *st, struct rpn *me)
 {
@@ -1347,6 +1361,7 @@ static struct lookup {
 	{ "falling", rpn_do_falling, },
 	{ "changed", rpn_do_edge, },
 	{ "pushed", rpn_do_rising, },
+	{ "setreset", rpn_do_setreset, },
 
 	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },

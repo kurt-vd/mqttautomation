@@ -609,18 +609,36 @@ static void free_slope(struct rpn *me)
 		free(priv->pos);
 }
 
+static void slope_test_final(void *dat, int dir)
+{
+	struct rpn *me = dat;
+	struct slope *priv = rpn_priv(me);
+
+	if (!dblcmp(priv->out, priv->setpoint, 0.01)) {
+		priv->busy = 0;
+	} else if ((dir < 0 && priv->out < priv->setpoint)
+		|| (dir > 0 && priv->out > priv->setpoint)) {
+		priv->out = priv->setpoint;
+		priv->busy = 0;
+	} else {
+		libt_add_timeout(priv->delay, on_slope_step, me);
+	}
+}
+
 static void slope_step(void *dat)
 {
 	struct rpn *me = dat;
 	struct slope *priv = rpn_priv(me);
-	double step, diff;
+	double step;
+	int dir;
 	int j;
 
 	if (priv->pos && (priv->setpoint < priv->out)) {
 		for (j = priv->npos-1; j >= 0; --j) {
 			if (priv->pos[j] < priv->out) {
 				priv->out = priv->pos[j];
-				libt_add_timeout(priv->delay, on_slope_step, me);
+				/* test for end decreasing */
+				slope_test_final(dat, -1);
 				return;
 			}
 		}
@@ -631,7 +649,8 @@ static void slope_step(void *dat)
 		for (j = 0; j < priv->npos; ++j) {
 			if (priv->pos[j] > priv->out) {
 				priv->out = priv->pos[j];
-				libt_add_timeout(priv->delay, on_slope_step, me);
+				/* test for end increasing */
+				slope_test_final(dat, +1);
 				return;
 			}
 		}
@@ -640,18 +659,16 @@ static void slope_step(void *dat)
 	}
 
 	step = priv->step;
-	diff = priv->setpoint - priv->out;
-	if (fabs(diff) < step)
-		step = fabs(diff);
 
 	if (priv->out < priv->setpoint)
-		priv->out += step;
+		/* increase */
+		dir = +1;
 	else
-		priv->out -= step;
-	if (dblcmp(priv->out, priv->setpoint, 0.01))
-		libt_add_timeout(priv->delay, on_slope_step, me);
-	else
-		priv->busy = 0;
+		/* decrease */
+		dir = -1;
+
+	priv->out += step*dir;
+	slope_test_final(dat, dir);
 }
 
 static void on_slope_step(void *dat)

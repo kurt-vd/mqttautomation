@@ -21,6 +21,16 @@
 
 #include "common.h"
 
+/* overrule the toolchain provided struct input_event.
+ * gcc messed a bit on arm eabi
+ */
+struct local_input_event {
+	unsigned long tv_sec;
+	unsigned long tv_usec;
+	uint16_t type;
+	uint16_t code;
+	int32_t value;
+};
 #define NAME "mqttinputevent"
 #ifndef VERSION
 #define VERSION "<undefined version>"
@@ -295,7 +305,7 @@ int main(int argc, char *argv[])
 	char *str;
 	char mqtt_name[32];
 	struct pollfd pf[2];
-	struct input_event evs[16];
+	struct local_input_event evs[16];
 	char valuestr[32];
 
 	/* argument parsing */
@@ -304,6 +314,7 @@ int main(int argc, char *argv[])
 	case 'V':
 		fprintf(stderr, "%s %s\nCompiled on %s %s\n",
 				NAME, VERSION, __DATE__, __TIME__);
+		fprintf(stderr, "struct input_event size: %u\n", sizeof(*evs));
 		exit(0);
 	case 'v':
 		++loglevel;

@@ -21,6 +21,13 @@
 
 #include "common.h"
 
+struct arm_input_event {
+	uint32_t secs;
+	uint32_t usecs;
+	uint16_t type;
+	uint16_t code;
+	int32_t value;
+};
 #define NAME "mqttinputevent"
 #ifndef VERSION
 #define VERSION "<undefined version>"
@@ -295,7 +302,7 @@ int main(int argc, char *argv[])
 	char *str;
 	char mqtt_name[32];
 	struct pollfd pf[2];
-	struct input_event evs[16];
+	struct arm_input_event evs[16];
 	char valuestr[32];
 
 	/* argument parsing */

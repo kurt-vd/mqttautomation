@@ -1020,6 +1020,28 @@ static void rpn_do_isnew(struct stack *st, struct rpn *me)
 	}
 	rpn_push(st, rpn_env_isnew());
 }
+static void on_timeout(void *dat)
+{
+	struct rpn *me = dat;
+
+	/* clear output */
+	me->cookie ^= 1;
+	rpn_run_again(me);
+}
+static void rpn_do_timeout(struct stack *st, struct rpn *me)
+{
+	double delay = rpn_pop1(st)->d;
+	int inval = rpn_env_isnew();
+
+	if (inval || !(me->cookie & 2)) {
+		/* input active, schedule timeout */
+		libt_add_timeout(delay, on_timeout, me);
+		me->timeout = on_timeout;
+		me->cookie = 2;
+	}
+
+	rpn_push(st, me->cookie & 1);
+}
 
 static void rpn_do_setreset(struct stack *st, struct rpn *me)
 {
@@ -1356,6 +1378,7 @@ static struct lookup {
 	{ "autoreset", rpn_do_autoreset, },
 
 	{ "isnew", rpn_do_isnew, },
+	{ "timeout", rpn_do_timeout, },
 	{ "edge", rpn_do_edge, },
 	{ "rising", rpn_do_rising, },
 	{ "falling", rpn_do_falling, },

@@ -314,7 +314,7 @@ int main(int argc, char *argv[])
 	case 'V':
 		fprintf(stderr, "%s %s\nCompiled on %s %s\n",
 				NAME, VERSION, __DATE__, __TIME__);
-		fprintf(stderr, "struct input_event size: %u\n", sizeof(*evs));
+		fprintf(stderr, "struct input_event size: %u\n", (int)sizeof(*evs));
 		exit(0);
 	case 'v':
 		++loglevel;

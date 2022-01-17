@@ -1061,18 +1061,16 @@ static void rpn_do_setreset(struct stack *st, struct rpn *me)
 static void rpn_do_wakeup(struct stack *st, struct rpn *me)
 {
 	struct rpn_el *delay = rpn_pop1(st);
-	time_t t, next;
-	int align;
 
 	/* leave the diff with the latest value on stack */
-	align = rpn_toint(delay->d);
-	if (!align)
-		align = 1;
-	time(&t);
-
-	next = t - t % align + align;
-	libt_add_timeout(next - t, rpn_run_again, me);
-	me->timeout = rpn_run_again;
+	if (!(delay->d > 0.01)) {
+		mylog(LOG_WARNING, "wakeup: delay %.3fs too small, corrected to 1s", delay->d);
+		delay->d = 1;
+	}
+	/* find 10msec after scheduled time */
+	double wait = libt_timetointerval4(libt_walltime(), delay->d, 0.01, 0.000);
+	libt_add_timeout(wait, on_timeout, me);
+	me->timeout = on_timeout;
 }
 
 static void rpn_do_timeofday(struct stack *st, struct rpn *me)

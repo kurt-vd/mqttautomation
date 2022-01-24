@@ -1079,6 +1079,38 @@ static void rpn_do_wakeup2(struct stack *st, struct rpn *me)
 	rpn_push(st, me->cookie);
 	me->cookie = 0;
 }
+static void rpn_do_delta(struct stack *st, struct rpn *me)
+{
+	rpn_do_wakeup(st, me);
+
+	double saved = rpn_pop1(st)->d;
+	double value = rpn_pop1(st)->d;
+
+	if (me->cookie & 1) {
+		if (isnan(saved))
+			saved = 0;
+		if (isnan(value))
+			value = 0;
+
+		/* produce new delta */
+		me->value = value - saved;
+
+		if ((value-saved)/(value+saved) < 1e-6)
+			goto nochange;
+
+		rpn_push(st, me->value);
+		rpn_push(st, value);
+		rpn_push(st, 1);
+		me->cookie |= 0x02;
+	} else {
+nochange:
+		if (me->cookie & 0x02)
+			/* re-publish saved value */
+			rpn_push(st, me->value);
+		rpn_push(st, 0);
+	}
+	me->cookie &= ~0x01;
+}
 
 static void rpn_do_timeofday(struct stack *st, struct rpn *me)
 {
@@ -1393,6 +1425,7 @@ static struct lookup {
 
 	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "wakeup2", rpn_do_wakeup2, RPNFN_PERIODIC | RPNFN_WALLTIME, },
+	{ "delta", rpn_do_delta, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },
 	{ "dayofweek", rpn_do_dayofweek, RPNFN_WALLTIME, },
 	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },

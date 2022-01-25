@@ -1269,6 +1269,24 @@ static void rpn_do_azimuth3(struct stack *st, struct rpn *me)
 	rpn_push(st, pos.azimuth);
 }
 
+static void rpn_do_celestial_angle(struct stack *st, struct rpn *me)
+{
+	double elv2 = rpn_pop1(st)->d;
+	double azm2 = rpn_pop1(st)->d;
+	double elv1 = rpn_pop1(st)->d;
+	double azm1 = rpn_pop1(st)->d;
+
+	elv2 = degtorad(elv2);
+	azm2 = degtorad(azm2);
+	elv1 = degtorad(elv1);
+	azm1 = degtorad(azm1);
+	double spheric_cos = sin(elv1)*sin(elv2)
+		+ cos(elv1)*cos(elv2)*cos(azm2-azm1);
+	double angle = acos(spheric_cos);
+	angle = radtodeg(angle);
+	rpn_push(st, angle);
+}
+
 /* flow control */
 static void rpn_do_if(struct stack *st, struct rpn *me)
 {
@@ -1451,6 +1469,7 @@ static struct lookup {
 	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
 	{ "sun3", rpn_do_sun3, },
 	{ "azimuth3", rpn_do_azimuth3, },
+	{ "celestial_angle", rpn_do_celestial_angle, }, /* azm1 elv1 azm2 elv2 celestial_angle */
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

@@ -1208,13 +1208,21 @@ static void rpn_do_fmtvalue(struct stack *st, struct rpn *me)
 }
 
 /* sin/cos */
+static double degtorad(double d)
+{
+	return d * M_PI / 180;
+}
+static double radtodeg(double d)
+{
+	return d * 180 / M_PI;
+}
 static void rpn_do_degtorad(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * M_PI / 180);
+	rpn_push(st, degtorad(rpn_pop1(st)->d));
 }
 static void rpn_do_radtodeg(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * 180 / M_PI);
+	rpn_push(st, radtodeg(rpn_pop1(st)->d));
 }
 static void rpn_do_sin(struct stack *st, struct rpn *me)
 {

@@ -110,6 +110,12 @@ struct item {
 	int rising;
 	double sinevalue;
 	double top, bottom;
+	/* avg */
+	double delay; /* number of time */
+	double lastt;
+	double lastval;
+	double sum;
+	double sumt;
 };
 
 struct item *items;
@@ -275,6 +281,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->mul = 1;
 		zfree(it->refelement);
 		it->ac = 0;
+		it->delay = NAN;
+		it->lastt = NAN;
+		it->lastval = it->sum = it->sumt = 0;
+
 		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {
 			value = strchr(tok, '=');
 			if (value)
@@ -287,6 +297,10 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 			} else if (!strcmp(tok, "ac")) {
 				it->ac = 1;
+
+			} else if (!strcmp(tok, "avg")) {
+				it->delay = mystrtod(value, &value);
+
 			}
 		}
 		link_item(it);
@@ -373,6 +387,29 @@ static void item_deliver_iio(struct item *it, struct iioel *el, double value, do
 		/* find RMS from Peak-to-peak */
 		value = (it->top - it->bottom)/(2*sqrt(2));
 	}
+	/* average */
+	if (!isnan(it->delay)) {
+		double deltat;
+
+		if (isnan(it->lastt)) {
+			/* start condition */
+			it->lastt = sampletime;
+			it->lastval = value;
+			it->sum = it->sumt = 0;
+			return;
+		}
+		deltat = sampletime - it->lastt;
+		it->sum += it->lastval * deltat;
+		it->sumt += deltat;
+		it->lastt = sampletime;
+		it->lastval = value;
+		if (it->sumt < it->delay)
+			return;
+		/* proceed */
+		value = it->sum / it->sumt;
+		it->sum = it->sumt = 0;
+	}
+
 	/* test against hysteresis */
 	if (fabs(it->oldvalue - value) < it->hyst)
 		/* perform the test so that a NaN would make it false */

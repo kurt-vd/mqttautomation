@@ -303,9 +303,7 @@ struct iiodev {
 	char *name;
 	char *hname; /* /name property */
 	uint8_t *dat;
-	uint8_t *olddat;
 	int datsize;
-	int olddatvalid;
 };
 struct iioel {
 	char *name;
@@ -405,26 +403,14 @@ static void iiodev_data(int fd, void *dat)
 		remove_iio(dev);
 		return;
 	}
-	if (newdatvalid != dev->olddatvalid)
-		mylog(LOG_INFO, "read %u/%u from /dev/%s", ret, dev->datsize, dev->name);
 
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
 		if (!el->enabled)
 			continue;
 		requiredsize = el->location + el->bytesused;
-		if (dev->olddatvalid >= requiredsize && newdatvalid >= requiredsize &&
-				!memcmp(dev->dat+el->location, dev->olddat+el->location, el->bytesused))
-			/* no change */
-			continue;
 		payload = NULL;
-		if (newdatvalid < requiredsize) {
-			if (dev->olddatvalid < requiredsize)
-				/* no change, both old & new data
-				 * do not contain this element
-				 */
-				continue;
-			payload = "";
-		} else
+		if (requiredsize > newdatvalid)
+			mylog(LOG_ERR, "%s,%s: not in data", dev->hname, el->name);
 		switch (el->bytesused) {
 		case 1:
 			val32 = dev->dat[el->location];
@@ -533,8 +519,6 @@ static void iiodev_data(int fd, void *dat)
 		}
 		el->oldvalue = valf;
 	}
-	memcpy(dev->olddat, dev->dat, dev->datsize);
-	dev->olddatvalid = newdatvalid;
 	if (!nomqtt)
 		fflush(stdout);
 }
@@ -620,7 +604,7 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 		el->hyst = 1e-2;
 	} else {
 		el->si_mult = 1;
-		el->hyst = 0;
+		el->hyst = 1;
 	}
 	/* invalidate the cache */
 	el->oldvalue = NAN;
@@ -725,7 +709,6 @@ static void remove_iio(struct iiodev *dev)
 	/* cleanup */
 	libe_remove_fd(dev->fd);
 	close(dev->fd);
-	free(dev->olddat);
 	free(dev->dat);
 	free(dev->hname);
 	free(dev->name);
@@ -874,10 +857,8 @@ static void add_device(const char *devname)
 	}
 	/* prepare read buffer */
 	dev->dat = realloc(dev->dat, dev->datsize);
-	dev->olddat = realloc(dev->olddat, dev->datsize);
-	if (dev->datsize && (!dev->dat || !dev->olddat))
+	if (dev->datsize && !dev->dat)
 		mylog(LOG_ERR, "(re)alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
-	dev->olddatvalid = 0;
 	globfree(&els);
 }
 

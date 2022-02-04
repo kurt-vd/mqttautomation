@@ -67,6 +67,8 @@ static struct option long_opts[] = {
 #endif
 static const char optstring[] = "Vv?m:s:N";
 
+#define zfree(x) ({ if (x) free(x); (x) = 0; })
+
 /* logging */
 static int loglevel = LOG_WARNING;
 
@@ -258,11 +260,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 		mylog(LOG_INFO, "new iio element for %s", it->topic);
 		/* process new iio element */
-		if (it->device)
-			free(it->device);
+		zfree(it->device);
+		zfree(it->element);
 		it->device = strdup(dev);
-		if (it->element)
-			free(it->element);
 		it->element = strdup(el);
 		it->mul = 1;
 		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {

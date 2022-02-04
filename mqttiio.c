@@ -226,7 +226,7 @@ static void pubitem(struct item *it, const char *payload)
 	int ret;
 
 	/* publish, volatile for buttons, retained for the rest */
-	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload), payload, mqtt_qos, 1);
+	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload ?: ""), payload, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
@@ -751,26 +751,26 @@ static void remove_iio(struct iiodev *dev)
 		dev->prev->next = dev->next;
 	/* cleanup elements */
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
-		free(el->name);
-		free(el);
 		/* unlink items */
 		for (it = items; it; it = it->next) {
 			if (it->iio == el) {
-				it->iio = NULL;
 				if (!isnan(it->oldvalue)) {
 					it->oldvalue = NAN;
 					pubitem(it, NULL);
 				}
+				it->iio = NULL;
 			}
 			if (it->refiio == el)
 				it->refiio = NULL;
 		}
+		free(el->name);
 	}
 	/* cleanup */
+	zfree(dev->els);
 	libe_remove_fd(dev->fd);
 	close(dev->fd);
-	free(dev->dat);
-	free(dev->hname);
+	zfree(dev->dat);
+	zfree(dev->hname);
 	free(dev->name);
 	free(dev);
 }

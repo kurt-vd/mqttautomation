@@ -41,8 +41,12 @@ static const char help_msg[] =
 	" -s, --suffix=STR	Give MQTT topic suffix for spec (default '/iiohw')\n"
 	" -N, --nomqtt		Only emit incoming event without propagating to MQTT\n"
 	"\n"
-	"Paramteres\n"
+	"Parameters\n"
 	" PATTERN	A pattern to subscribe for\n"
+	"\n"
+	"Environment variables\n"
+	" MQTT_KEEPALIVE=TIME\n"
+	" DEBUGGING=xxx		don't block SIGINT, so gdb works properly\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -765,8 +769,8 @@ static void add_device(const char *devname)
 		el->oldvalue = NAN;
 		/* fill element */
 		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
-		load_element(dev, el);
 		mylog(LOG_INFO, "new channel (%s) %s, %s", dev->name, dev->hname, el->name);
+		load_element(dev, el);
 	}
 	/* sort by index */
 	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);
@@ -917,6 +921,10 @@ int main(int argc, char *argv[])
 
 	/* MQTT start */
 	if (!nomqtt) {
+		str = getenv("MQTT_KEEPALIVE");
+		if (str)
+			mqtt_keepalive = strtoul(str, NULL, 0);
+
 		mosquitto_lib_init();
 		sprintf(mqtt_name, "%s-%i", NAME, getpid());
 		mosq = mosquitto_new(mqtt_name, true, 0);
@@ -949,6 +957,9 @@ int main(int argc, char *argv[])
 	int sigfd;
 
 	sigfillset(&sigmask);
+	if (getenv("DEBUGGING"))
+		/* for debugging */
+		sigdelset(&sigmask, SIGINT);
 
 	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0)
 		mylog(LOG_ERR, "sigprocmask: %s", ESTR(errno));
@@ -969,6 +980,9 @@ int main(int argc, char *argv[])
 			libe_flush();
 	}
 
+	if (!mqtt_qos)
+		mqtt_qos = 1;
+	mylog(LOG_DEBUG, "terminating");
 	if (nomqtt)
 		goto mqtt_done;
 

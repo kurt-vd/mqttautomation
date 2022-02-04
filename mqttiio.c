@@ -105,6 +105,11 @@ struct item {
 	double oldvalue;
 	double refvalue;
 	double mul;
+	/* ac measurements */
+	int ac;
+	int rising;
+	double sinevalue;
+	double top, bottom;
 };
 
 struct item *items;
@@ -269,6 +274,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->element = strdup(el);
 		it->mul = 1;
 		zfree(it->refelement);
+		it->ac = 0;
 		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {
 			value = strchr(tok, '=');
 			if (value)
@@ -278,6 +284,9 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 			} else if (!strcmp(tok, "diff")) {
 				it->refelement = strdup(value);
+
+			} else if (!strcmp(tok, "ac")) {
+				it->ac = 1;
 			}
 		}
 		link_item(it);
@@ -347,6 +356,25 @@ static void item_deliver_iio(struct item *it, struct iioel *el, double value)
 	if (it->refiio)
 		value -= it->refvalue;
 	value *= it->mul;
+
+	if (it->ac) {
+		int rise;
+
+		rise = value > it->sinevalue;
+		it->sinevalue = value;
+
+		if (rise && !it->rising) {
+			it->bottom = it->oldvalue;
+			/* continue, we reache top & bottom */
+		} else if (!rise && it->rising) {
+			it->top = it->oldvalue;
+			return;
+		} else {
+			return;
+		}
+		/* find RMS from Peak-to-peak */
+		value = (it->top - it->bottom)/(2*sqrt(2));
+	}
 	/* test against hysteresis */
 	if (fabs(it->oldvalue - value) < it->hyst)
 		/* perform the test so that a NaN would make it false */

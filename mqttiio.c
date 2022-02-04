@@ -506,6 +506,7 @@ static void iiodev_data(int fd, void *dat)
 			if (it->refiio == el) {
 				/* set ref */
 				it->refvalue = valf;
+				++nitems;
 				continue;
 			}
 			if (it->iio != el)

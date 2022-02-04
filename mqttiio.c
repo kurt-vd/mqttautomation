@@ -97,10 +97,13 @@ struct item {
 	int topiclen;
 	char *device;
 	char *element;
+	char *refelement;
 	const struct iioel *iio; /* abstract pointer, for quick compare */
+	const struct iioel *refiio; /* for differential measurements */
 
 	double hyst;
 	double oldvalue;
+	double refvalue;
 	double mul;
 };
 
@@ -265,12 +268,16 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it->device = strdup(dev);
 		it->element = strdup(el);
 		it->mul = 1;
+		zfree(it->refelement);
 		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {
 			value = strchr(tok, '=');
 			if (value)
 				*value++ = 0;
 			if (!strcmp(tok, "mul")) {
 				it->mul = strtod(value, NULL);
+
+			} else if (!strcmp(tok, "diff")) {
+				it->refelement = strdup(value);
 			}
 		}
 		link_item(it);
@@ -334,6 +341,11 @@ const char *mydtostr_align2(double d, double align)
 
 static void item_deliver_iio(struct item *it, struct iioel *el, double value)
 {
+	if (it->refelement && !it->refiio)
+		/* incomplete */
+		return;
+	if (it->refiio)
+		value -= it->refvalue;
 	value *= it->mul;
 	/* test against hysteresis */
 	if (fabs(it->oldvalue - value) < it->hyst)
@@ -463,6 +475,11 @@ static void iiodev_data(int fd, void *dat)
 		}
 
 		for (it = items; it; it = it->next) {
+			if (it->refiio == el) {
+				/* set ref */
+				it->refvalue = valf;
+				continue;
+			}
 			if (it->iio != el)
 				continue;
 			++nitems;
@@ -604,9 +621,13 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
 			continue;
 		/* match element */
-		if (strcmp(it->element, el->name))
-			continue;
-		link_element(dev, el, it);
+		if (!strcmp(it->element, el->name)) {
+			link_element(dev, el, it);
+
+		} else if (it->refelement && !strcmp(it->refelement, el->name)) {
+			it->refiio = el;
+			mylog(LOG_INFO, "ref  %s,%s to %s", dev->hname, el->name, it->topic);
+		}
 	}
 }
 
@@ -614,6 +635,7 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 static void link_item(struct item *it)
 {
 	struct iiodev *dev;
+	struct iioel *el;
 	int j;
 
 	for (dev = iiodevs; dev; dev = dev->next) {
@@ -621,10 +643,18 @@ static void link_item(struct item *it)
 		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
 			continue;
 		for (j = 0; j < dev->nels; ++j) {
-			if (strcmp(it->element, dev->els[j].name))
-				continue;
-			link_element(dev, &dev->els[j], it);
-			return;
+			el = dev->els+j;
+			if (!strcmp(it->element, el->name)) {
+				link_element(dev, el, it);
+				if (!it->refelement || it->refiio)
+					return;
+
+			} else if (it->refelement && !strcmp(it->refelement, el->name)) {
+				it->refiio = el;
+				mylog(LOG_INFO, "ref  %s,%s to %s", dev->hname, el->name, it->topic);
+				if (it->iio)
+					return;
+			}
 		}
 	}
 	/* nothing found */
@@ -659,6 +689,8 @@ static void remove_iio(struct iiodev *dev)
 					pubitem(it, NULL);
 				}
 			}
+			if (it->refiio == el)
+				it->refiio = NULL;
 		}
 	}
 	/* cleanup */

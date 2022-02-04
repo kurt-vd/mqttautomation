@@ -751,17 +751,21 @@ static void remove_iio(struct iiodev *dev)
 		dev->prev->next = dev->next;
 	/* cleanup elements */
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
+		mylog(LOG_INFO, "remove el %s", el->name);
 		/* unlink items */
 		for (it = items; it; it = it->next) {
 			if (it->iio == el) {
+				mylog(LOG_INFO, "remove from %s", it->topic);
 				if (!isnan(it->oldvalue)) {
 					it->oldvalue = NAN;
 					pubitem(it, NULL);
 				}
 				it->iio = NULL;
 			}
-			if (it->refiio == el)
+			if (it->refiio == el) {
+				mylog(LOG_INFO, "remove from %s", it->topic);
 				it->refiio = NULL;
+			}
 		}
 		free(el->name);
 	}

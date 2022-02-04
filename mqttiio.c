@@ -346,7 +346,7 @@ const char *mydtostr_align2(double d, double align)
 	return mydtostr_align(d, align);
 }
 
-static void item_deliver_iio(struct item *it, struct iioel *el, double value)
+static void item_deliver_iio(struct item *it, struct iioel *el, double value, double sampletime)
 {
 	if (it->refelement && !it->refiio)
 		/* incomplete */
@@ -392,6 +392,7 @@ static void iiodev_data(int fd, void *dat)
 	int64_t val64;
 	struct item *it;
 	const char *payload;
+	double sampletime;
 
 	newdatvalid = ret = read(fd, dev->dat, dev->datsize);
 	if (ret < 0 && (errno == EAGAIN || errno == EINTR))
@@ -404,6 +405,7 @@ static void iiodev_data(int fd, void *dat)
 		return;
 	}
 
+	sampletime = NAN;
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
 		if (!el->enabled)
 			continue;
@@ -465,6 +467,7 @@ static void iiodev_data(int fd, void *dat)
 				sprintf(longbuf, "%llu.%06llu", (unsigned long long)val64 / 1000000000ULL,
 						((unsigned long long)val64 % 1000000000ULL)/1000);
 				payload = longbuf;
+				sampletime = val64 / 1e6;
 			} else
 			if (!el->sign)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
@@ -501,7 +504,7 @@ static void iiodev_data(int fd, void *dat)
 			if (payload)
 				pubitem(it, payload);
 			else
-				item_deliver_iio(it, el, valf);
+				item_deliver_iio(it, el, valf, sampletime);
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;
@@ -528,6 +531,14 @@ static int elementcmp(const void *va, const void *vb)
 	const struct iioel *a = va, *b = vb;
 
 	return a->index - b->index;
+}
+static int elementcmp_tsfirst(const void *va, const void *vb)
+{
+	const struct iioel *a = va, *b = vb;
+
+	if (!strcmp(a->name, "timestamp"))
+		return -1;
+	return elementcmp(a, b);
 }
 
 __attribute__((format(printf,2,3)))
@@ -853,8 +864,12 @@ static void add_device(const char *devname)
 			dev->datsize += el->bytesused - mod;
 		el->location = dev->datsize;
 		dev->datsize += el->bytesused;
-		link_elements(dev, el);
 	}
+	/* now, sort similarly, but put timestamp first */
+	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp_tsfirst);
+	/* only link after final sorting */
+	for (el = dev->els; el < dev->els+dev->nels; ++el)
+		link_elements(dev, el);
 	/* prepare read buffer */
 	dev->dat = realloc(dev->dat, dev->datsize);
 	if (dev->datsize && !dev->dat)

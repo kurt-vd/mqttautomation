@@ -320,6 +320,16 @@ const char *mydtostr_align2(double d, double align)
 	return mydtostr_align(d, align);
 }
 
+static void item_deliver_iio(struct item *it, struct iioel *el, double value)
+{
+	/* test against hysteresis */
+	if (fabs(it->oldvalue - value) < it->hyst)
+		/* perform the test so that a NaN would make it false */
+		return;
+	pubitem(it, mydtostr_align(value, it->hyst));
+	it->oldvalue = value;
+}
+
 static void iiodev_data(int fd, void *dat)
 {
 	struct iiodev *dev = dat;
@@ -443,11 +453,10 @@ static void iiodev_data(int fd, void *dat)
 			if (it->iio != el)
 				continue;
 			++nitems;
-			/* test against hysteresis */
-			if (fabs(it->oldvalue - valf) < it->hyst)
-				continue;
-			pubitem(it, payload ?: mydtostr_align(valf, it->hyst));
-			it->oldvalue = valf;
+			if (payload)
+				pubitem(it, payload);
+			else
+				item_deliver_iio(it, el, valf);
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;
@@ -567,10 +576,6 @@ static void link_element(const struct iiodev *dev, const struct iioel *el, struc
 	/* inherit hysteris if not set */
 	if (isnan(it->hyst))
 		it->hyst = el->hyst;
-	if (!isnan(it->oldvalue) || !isnan(el->oldvalue)) {
-		it->oldvalue = el->oldvalue;
-		pubitem(it, mydtostr_align(it->oldvalue, it->hyst));
-	}
 }
 
 /* link existing items to new iioel */

@@ -451,12 +451,17 @@ static void iiodev_data(int fd, void *dat)
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;
+			char *tpc;
 
+			asprintf(&tpc, "%s/%s/%s", mqtt_unknown_topic,
+					dev->hname,
+					el->name);
 			/* publish to unknow topic */
 			payload = payload ?: mydtostr_align(valf, el->hyst);
-			ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(payload), payload, mqtt_qos, 0);
+			ret = mosquitto_publish(mosq, NULL, tpc, strlen(payload), payload, mqtt_qos, 0);
 			if (ret < 0)
-				mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_unknown_topic, mosquitto_strerror(ret));
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", tpc, mosquitto_strerror(ret));
+			free(tpc);
 		}
 		el->oldvalue = valf;
 	}

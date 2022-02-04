@@ -99,6 +99,7 @@ struct item {
 
 	double hyst;
 	double oldvalue;
+	double mul;
 };
 
 struct item *items;
@@ -176,6 +177,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	/* set defaults */
 	it->hyst = NAN;
 	it->oldvalue = NAN;
+	it->mul = 1;
 
 	/* insert in linked list */
 	it->next = items;
@@ -220,6 +222,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	int forme;
 	char *dev, *el;
+	char *tok, *value;
 	struct item *it;
 
 	if (is_self_sync(msg)) {
@@ -261,6 +264,15 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		if (it->element)
 			free(it->element);
 		it->element = strdup(el);
+		it->mul = 1;
+		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {
+			value = strchr(tok, '=');
+			if (value)
+				*value++ = 0;
+			if (!strcmp(tok, "mul")) {
+				it->mul = strtod(value, NULL);
+			}
+		}
 		link_item(it);
 	}
 }
@@ -322,6 +334,7 @@ const char *mydtostr_align2(double d, double align)
 
 static void item_deliver_iio(struct item *it, struct iioel *el, double value)
 {
+	value *= it->mul;
 	/* test against hysteresis */
 	if (fabs(it->oldvalue - value) < it->hyst)
 		/* perform the test so that a NaN would make it false */
@@ -575,7 +588,7 @@ static void link_element(const struct iiodev *dev, const struct iioel *el, struc
 	it->iio = el;
 	/* inherit hysteris if not set */
 	if (isnan(it->hyst))
-		it->hyst = el->hyst;
+		it->hyst = el->hyst * it->mul;
 }
 
 /* link existing items to new iioel */

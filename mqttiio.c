@@ -360,7 +360,8 @@ const char *mydtostr_align2(double d, double align)
 	return mydtostr_align(d, align);
 }
 
-static void item_deliver_iio(struct item *it, struct iioel *el, double value, double sampletime)
+static void item_deliver_iio(struct item *it, struct iioel *el, double value,
+		double sampletime, int isfaketime)
 {
 	if (it->refelement && !it->refiio)
 		/* incomplete */
@@ -398,13 +399,21 @@ static void item_deliver_iio(struct item *it, struct iioel *el, double value, do
 			it->sum = it->sumt = 0;
 			return;
 		}
-		deltat = sampletime - it->lastt;
-		it->sum += it->lastval * deltat;
-		it->sumt += deltat;
-		it->lastt = sampletime;
-		it->lastval = value;
-		if (it->sumt < it->delay)
-			return;
+		if (isfaketime) {
+			it->sum += value;
+			it->sumt += 1;
+			if ((sampletime - it->lastt) < it->delay)
+				return;
+			it->lastt += it->delay;
+		} else {
+			deltat = sampletime - it->lastt;
+			it->sum += it->lastval * deltat;
+			it->sumt += deltat;
+			it->lastt = sampletime;
+			it->lastval = value;
+			if (it->sumt < it->delay)
+				return;
+		}
 		/* proceed */
 		value = it->sum / it->sumt;
 		it->sum = it->sumt = 0;
@@ -442,7 +451,8 @@ static void iiodev_data(int fd, void *dat)
 		return;
 	}
 
-	sampletime = NAN;
+	sampletime = libt_now();
+	int fakesampletime = 1;
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
 		if (!el->enabled)
 			continue;
@@ -505,6 +515,7 @@ static void iiodev_data(int fd, void *dat)
 						((unsigned long long)val64 % 1000000000ULL)/1000);
 				payload = longbuf;
 				sampletime = val64 / 1e6;
+				fakesampletime = 0;
 			} else
 			if (!el->sign)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
@@ -541,7 +552,8 @@ static void iiodev_data(int fd, void *dat)
 			if (payload)
 				pubitem(it, payload);
 			else
-				item_deliver_iio(it, el, valf, sampletime);
+				item_deliver_iio(it, el, valf,
+						sampletime, fakesampletime);
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;

@@ -316,6 +316,7 @@ struct iiodev {
 	int fd;
 	char *name;
 	char *hname; /* /name property */
+	char *label; /* /label property */
 	uint8_t *dat;
 	int datsize;
 };
@@ -446,7 +447,7 @@ static void iiodev_data(int fd, void *dat)
 	if (ret < 0)
 		mylog(LOG_ERR, "read %u from /dev/%s: %s", dev->datsize, dev->name, ESTR(errno));
 	if (!ret) {
-		mylog(LOG_WARNING, "/dev/%s %s eof", dev->name, dev->hname);
+		mylog(LOG_WARNING, "/dev/%s %s eof", dev->name, dev->label ?: dev->hname);
 		remove_iio(dev);
 		return;
 	}
@@ -459,7 +460,7 @@ static void iiodev_data(int fd, void *dat)
 		requiredsize = el->location + el->bytesused;
 		payload = NULL;
 		if (requiredsize > newdatvalid)
-			mylog(LOG_ERR, "%s,%s: not in data", dev->hname, el->name);
+			mylog(LOG_ERR, "%s,%s: not in data", dev->label ?: dev->hname, el->name);
 		switch (el->bytesused) {
 		case 1:
 			val32 = dev->dat[el->location];
@@ -533,7 +534,7 @@ static void iiodev_data(int fd, void *dat)
 			if ((isnan(el->oldvalue) && isnan(valf)) || fabs(el->oldvalue - valf) < el->hyst)
 				;
 			else {
-				printf("%s %s: %s\n", dev->hname, el->name, payload ?: mydtostr_align2(valf, el->hyst));
+				printf("%s %s: %s\n", dev->label ?: dev->hname, el->name, payload ?: mydtostr_align2(valf, el->hyst));
 				el->oldvalue = valf;
 			}
 			continue;
@@ -560,7 +561,7 @@ static void iiodev_data(int fd, void *dat)
 			char *tpc;
 
 			asprintf(&tpc, "%s/%s/%s", mqtt_unknown_topic,
-					dev->hname,
+					dev->label ?: dev->hname,
 					el->name);
 			/* publish to unknow topic */
 			payload = payload ?: mydtostr_align(valf, el->hyst);
@@ -673,7 +674,7 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 /* link iioel to item */
 static void link_element(const struct iiodev *dev, const struct iioel *el, struct item *it)
 {
-	mylog(LOG_INFO, "link %s,%s to %s", dev->hname, el->name, it->topic);
+	mylog(LOG_INFO, "link %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
 	/* link */
 	it->iio = el;
 	/* inherit hysteris if not set */
@@ -691,7 +692,10 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 		return;
 	for (it = items; it; it = it->next) {
 		/* match device name */
-		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+		if (strcmp(it->device, dev->name)
+				&& strcmp(it->device, dev->hname)
+				&& strcmp(it->device, dev->label ?: "")
+				)
 			continue;
 		/* match element */
 		if (!strcmp(it->element, el->name)) {
@@ -699,7 +703,7 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 
 		} else if (it->refelement && !strcmp(it->refelement, el->name)) {
 			it->refiio = el;
-			mylog(LOG_INFO, "ref  %s,%s to %s", dev->hname, el->name, it->topic);
+			mylog(LOG_INFO, "ref  %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
 		}
 	}
 }
@@ -713,7 +717,10 @@ static void link_item(struct item *it)
 
 	for (dev = iiodevs; dev; dev = dev->next) {
 		/* match device name */
-		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+		if (strcmp(it->device, dev->name)
+				&& strcmp(it->device, dev->hname)
+				&& strcmp(it->device, dev->label ?: "")
+				)
 			continue;
 		for (j = 0; j < dev->nels; ++j) {
 			el = dev->els+j;
@@ -724,7 +731,7 @@ static void link_item(struct item *it)
 
 			} else if (it->refelement && !strcmp(it->refelement, el->name)) {
 				it->refiio = el;
-				mylog(LOG_INFO, "ref  %s,%s to %s", dev->hname, el->name, it->topic);
+				mylog(LOG_INFO, "ref  %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
 				if (it->iio)
 					return;
 			}
@@ -775,6 +782,7 @@ static void remove_iio(struct iiodev *dev)
 	close(dev->fd);
 	zfree(dev->dat);
 	zfree(dev->hname);
+	zfree(dev->label);
 	free(dev->name);
 	free(dev);
 }
@@ -804,6 +812,7 @@ static void add_device(const char *devname)
 	struct iioel *el;
 	static char filename[2048];
 	const char *humanname;
+	const char *label;
 
 	/* strip leading /dev/ */
 	if (!strncmp("/dev/", devname, 5))
@@ -837,6 +846,9 @@ static void add_device(const char *devname)
 		memset(dev, 0, sizeof(*dev));
 		dev->name = strdup(devname);
 		dev->hname = strdup(humanname ?: devname);
+		label = prop_read2(ENOENT, "/sys/bus/iio/devices/%s/label", devname);
+		if (label && *label)
+			dev->label = strdup(label);
 
 		/* open file */
 		char filename[128];
@@ -900,7 +912,10 @@ static void add_device(const char *devname)
 		el->oldvalue = NAN;
 		/* fill element */
 		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
-		mylog(LOG_INFO, "new channel (%s) %s, %s", dev->name, dev->hname, el->name);
+		mylog(LOG_INFO, "new channel (%s) %s, '%s': %s", dev->name,
+				dev->hname,
+				dev->label ?: "",
+				el->name);
 		load_element(dev, el);
 	}
 	/* sort by index */

@@ -292,7 +292,7 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 	int ret;
 
 	if (h->prefixlen && h->prefix[h->prefixlen-1] != '/')
-		mylog(LOG_NOTICE, "[%s] prefix does not end in '/'", h->name);
+		mylog(LOG_NOTICE, "[%s] prefix '%s' does not end in '/'", h->name, h->prefix);
 	h->mosq = mosquitto_new(clientid, true, h);
 	if (!h->mosq)
 		mylog(LOG_ERR, "[%s] new: %s", h->name, ESTR(errno));

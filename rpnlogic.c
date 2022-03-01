@@ -1061,18 +1061,55 @@ static void rpn_do_setreset(struct stack *st, struct rpn *me)
 static void rpn_do_wakeup(struct stack *st, struct rpn *me)
 {
 	struct rpn_el *delay = rpn_pop1(st);
-	time_t t, next;
-	int align;
 
 	/* leave the diff with the latest value on stack */
-	align = rpn_toint(delay->d);
-	if (!align)
-		align = 1;
-	time(&t);
+	if (!(delay->d > 0.01)) {
+		mylog(LOG_WARNING, "wakeup: delay %.3fs too small, corrected to 1s", delay->d);
+		delay->d = 1;
+	}
+	/* find 10msec after scheduled time */
+	double wait = libt_timetointerval4(libt_walltime(), delay->d, 0.01, 0.000);
+	libt_add_timeout(wait, on_timeout, me);
+	me->timeout = on_timeout;
+}
+static void rpn_do_wakeup2(struct stack *st, struct rpn *me)
+{
+	rpn_do_wakeup(st, me);
+	/* forward result of my timer */
+	rpn_push(st, me->cookie);
+	me->cookie = 0;
+}
+static void rpn_do_delta(struct stack *st, struct rpn *me)
+{
+	rpn_do_wakeup(st, me);
 
-	next = t - t % align + align;
-	libt_add_timeout(next - t, rpn_run_again, me);
-	me->timeout = rpn_run_again;
+	double saved = rpn_pop1(st)->d;
+	double value = rpn_pop1(st)->d;
+
+	if (me->cookie & 1) {
+		if (isnan(saved))
+			saved = 0;
+		if (isnan(value))
+			value = 0;
+
+		/* produce new delta */
+		me->value = value - saved;
+
+		if ((value-saved)/(value+saved) < 1e-6)
+			goto nochange;
+
+		rpn_push(st, me->value);
+		rpn_push(st, value);
+		rpn_push(st, 1);
+		me->cookie |= 0x02;
+	} else {
+nochange:
+		if (me->cookie & 0x02)
+			/* re-publish saved value */
+			rpn_push(st, me->value);
+		rpn_push(st, 0);
+	}
+	me->cookie &= ~0x01;
 }
 
 static void rpn_do_timeofday(struct stack *st, struct rpn *me)
@@ -1171,13 +1208,21 @@ static void rpn_do_fmtvalue(struct stack *st, struct rpn *me)
 }
 
 /* sin/cos */
+static double degtorad(double d)
+{
+	return d * M_PI / 180;
+}
+static double radtodeg(double d)
+{
+	return d * 180 / M_PI;
+}
 static void rpn_do_degtorad(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * M_PI / 180);
+	rpn_push(st, degtorad(rpn_pop1(st)->d));
 }
 static void rpn_do_radtodeg(struct stack *st, struct rpn *me)
 {
-	rpn_push(st, rpn_pop1(st)->d * 180 / M_PI);
+	rpn_push(st, radtodeg(rpn_pop1(st)->d));
 }
 static void rpn_do_sin(struct stack *st, struct rpn *me)
 {
@@ -1222,6 +1267,24 @@ static void rpn_do_azimuth3(struct stack *st, struct rpn *me)
 
 	pos = sun_pos_strous(t->d, lat->d, lon->d);
 	rpn_push(st, pos.azimuth);
+}
+
+static void rpn_do_celestial_angle(struct stack *st, struct rpn *me)
+{
+	double elv2 = rpn_pop1(st)->d;
+	double azm2 = rpn_pop1(st)->d;
+	double elv1 = rpn_pop1(st)->d;
+	double azm1 = rpn_pop1(st)->d;
+
+	elv2 = degtorad(elv2);
+	azm2 = degtorad(azm2);
+	elv1 = degtorad(elv1);
+	azm1 = degtorad(azm1);
+	double spheric_cos = sin(elv1)*sin(elv2)
+		+ cos(elv1)*cos(elv2)*cos(azm2-azm1);
+	double angle = acos(spheric_cos);
+	angle = radtodeg(angle);
+	rpn_push(st, angle);
 }
 
 /* flow control */
@@ -1387,6 +1450,8 @@ static struct lookup {
 	{ "setreset", rpn_do_setreset, },
 
 	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
+	{ "wakeup2", rpn_do_wakeup2, RPNFN_PERIODIC | RPNFN_WALLTIME, },
+	{ "delta", rpn_do_delta, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },
 	{ "dayofweek", rpn_do_dayofweek, RPNFN_WALLTIME, },
 	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },
@@ -1404,6 +1469,7 @@ static struct lookup {
 	{ "sun", rpn_do_sun, RPNFN_WALLTIME, },
 	{ "sun3", rpn_do_sun3, },
 	{ "azimuth3", rpn_do_azimuth3, },
+	{ "celestial_angle", rpn_do_celestial_angle, }, /* azm1 elv1 azm2 elv2 celestial_angle */
 
 	{ "if", rpn_do_if, },
 	{ "else", rpn_do_else, },

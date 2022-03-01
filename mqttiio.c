@@ -41,8 +41,12 @@ static const char help_msg[] =
 	" -s, --suffix=STR	Give MQTT topic suffix for spec (default '/iiohw')\n"
 	" -N, --nomqtt		Only emit incoming event without propagating to MQTT\n"
 	"\n"
-	"Paramteres\n"
+	"Parameters\n"
 	" PATTERN	A pattern to subscribe for\n"
+	"\n"
+	"Environment variables\n"
+	" MQTT_KEEPALIVE=TIME\n"
+	" DEBUGGING=xxx		don't block SIGINT, so gdb works properly\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -62,6 +66,8 @@ static struct option long_opts[] = {
 	getopt((argc), (argv), (optstring))
 #endif
 static const char optstring[] = "Vv?m:s:N";
+
+#define zfree(x) ({ if (x) free(x); (x) = 0; })
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -91,10 +97,25 @@ struct item {
 	int topiclen;
 	char *device;
 	char *element;
+	char *refelement;
 	const struct iioel *iio; /* abstract pointer, for quick compare */
+	const struct iioel *refiio; /* for differential measurements */
 
 	double hyst;
 	double oldvalue;
+	double refvalue;
+	double mul;
+	/* ac measurements */
+	int ac;
+	int rising;
+	double sinevalue;
+	double top, bottom;
+	/* avg */
+	double delay; /* number of time */
+	double lastt;
+	double lastval;
+	double sum;
+	double sumt;
 };
 
 struct item *items;
@@ -172,6 +193,7 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	/* set defaults */
 	it->hyst = NAN;
 	it->oldvalue = NAN;
+	it->mul = 1;
 
 	/* insert in linked list */
 	it->next = items;
@@ -204,7 +226,7 @@ static void pubitem(struct item *it, const char *payload)
 	int ret;
 
 	/* publish, volatile for buttons, retained for the rest */
-	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload), payload, mqtt_qos, 1);
+	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload ?: ""), payload, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
@@ -216,6 +238,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	int forme;
 	char *dev, *el;
+	char *tok, *value;
 	struct item *it;
 
 	if (is_self_sync(msg)) {
@@ -251,12 +274,35 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 
 		mylog(LOG_INFO, "new iio element for %s", it->topic);
 		/* process new iio element */
-		if (it->device)
-			free(it->device);
+		zfree(it->device);
+		zfree(it->element);
 		it->device = strdup(dev);
-		if (it->element)
-			free(it->element);
 		it->element = strdup(el);
+		it->mul = 1;
+		zfree(it->refelement);
+		it->ac = 0;
+		it->delay = NAN;
+		it->lastt = NAN;
+		it->lastval = it->sum = it->sumt = 0;
+
+		for (tok = strtok(NULL, " \t"); tok != NULL; tok = strtok(NULL, " \t")) {
+			value = strchr(tok, '=');
+			if (value)
+				*value++ = 0;
+			if (!strcmp(tok, "mul")) {
+				it->mul = strtod(value, NULL);
+
+			} else if (!strcmp(tok, "diff")) {
+				it->refelement = strdup(value);
+
+			} else if (!strcmp(tok, "ac")) {
+				it->ac = 1;
+
+			} else if (!strcmp(tok, "avg")) {
+				it->delay = mystrtod(value, &value);
+
+			}
+		}
 		link_item(it);
 	}
 }
@@ -270,10 +316,9 @@ struct iiodev {
 	int fd;
 	char *name;
 	char *hname; /* /name property */
+	char *label; /* /label property */
 	uint8_t *dat;
-	uint8_t *olddat;
 	int datsize;
-	int olddatvalid;
 };
 struct iioel {
 	char *name;
@@ -316,6 +361,73 @@ const char *mydtostr_align2(double d, double align)
 	return mydtostr_align(d, align);
 }
 
+static void item_deliver_iio(struct item *it, struct iioel *el, double value,
+		double sampletime, int isfaketime)
+{
+	if (it->refelement && !it->refiio)
+		/* incomplete */
+		return;
+	if (it->refiio)
+		value -= it->refvalue;
+	value *= it->mul;
+
+	if (it->ac) {
+		int rise;
+
+		rise = value > it->sinevalue;
+		it->sinevalue = value;
+
+		if (rise && !it->rising) {
+			it->bottom = it->oldvalue;
+			/* continue, we reache top & bottom */
+		} else if (!rise && it->rising) {
+			it->top = it->oldvalue;
+			return;
+		} else {
+			return;
+		}
+		/* find RMS from Peak-to-peak */
+		value = (it->top - it->bottom)/(2*sqrt(2));
+	}
+	/* average */
+	if (!isnan(it->delay)) {
+		double deltat;
+
+		if (isnan(it->lastt)) {
+			/* start condition */
+			it->lastt = sampletime;
+			it->lastval = value;
+			it->sum = it->sumt = 0;
+			return;
+		}
+		if (isfaketime) {
+			it->sum += value;
+			it->sumt += 1;
+			if ((sampletime - it->lastt) < it->delay)
+				return;
+			it->lastt += it->delay;
+		} else {
+			deltat = sampletime - it->lastt;
+			it->sum += it->lastval * deltat;
+			it->sumt += deltat;
+			it->lastt = sampletime;
+			it->lastval = value;
+			if (it->sumt < it->delay)
+				return;
+		}
+		/* proceed */
+		value = it->sum / it->sumt;
+		it->sum = it->sumt = 0;
+	}
+
+	/* test against hysteresis */
+	if (fabs(it->oldvalue - value) < it->hyst)
+		/* perform the test so that a NaN would make it false */
+		return;
+	pubitem(it, mydtostr_align(value, it->hyst));
+	it->oldvalue = value;
+}
+
 static void iiodev_data(int fd, void *dat)
 {
 	struct iiodev *dev = dat;
@@ -327,6 +439,7 @@ static void iiodev_data(int fd, void *dat)
 	int64_t val64;
 	struct item *it;
 	const char *payload;
+	double sampletime;
 
 	newdatvalid = ret = read(fd, dev->dat, dev->datsize);
 	if (ret < 0 && (errno == EAGAIN || errno == EINTR))
@@ -334,30 +447,20 @@ static void iiodev_data(int fd, void *dat)
 	if (ret < 0)
 		mylog(LOG_ERR, "read %u from /dev/%s: %s", dev->datsize, dev->name, ESTR(errno));
 	if (!ret) {
-		mylog(LOG_WARNING, "/dev/%s %s eof", dev->name, dev->hname);
+		mylog(LOG_WARNING, "/dev/%s %s eof", dev->name, dev->label ?: dev->hname);
 		remove_iio(dev);
 		return;
 	}
-	if (newdatvalid != dev->olddatvalid)
-		mylog(LOG_INFO, "read %u/%u from /dev/%s", ret, dev->datsize, dev->name);
 
+	sampletime = libt_now();
+	int fakesampletime = 1;
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
 		if (!el->enabled)
 			continue;
 		requiredsize = el->location + el->bytesused;
-		if (dev->olddatvalid >= requiredsize && newdatvalid >= requiredsize &&
-				!memcmp(dev->dat+el->location, dev->olddat+el->location, el->bytesused))
-			/* no change */
-			continue;
 		payload = NULL;
-		if (newdatvalid < requiredsize) {
-			if (dev->olddatvalid < requiredsize)
-				/* no change, both old & new data
-				 * do not contain this element
-				 */
-				continue;
-			payload = "";
-		} else
+		if (requiredsize > newdatvalid)
+			mylog(LOG_ERR, "%s,%s: not in data", dev->label ?: dev->hname, el->name);
 		switch (el->bytesused) {
 		case 1:
 			val32 = dev->dat[el->location];
@@ -412,6 +515,8 @@ static void iiodev_data(int fd, void *dat)
 				sprintf(longbuf, "%llu.%06llu", (unsigned long long)val64 / 1000000000ULL,
 						((unsigned long long)val64 % 1000000000ULL)/1000);
 				payload = longbuf;
+				sampletime = val64 / 1e6;
+				fakesampletime = 0;
 			} else
 			if (!el->sign)
 				valf = ((uint64_t)val64+el->offset)*el->scale;
@@ -429,35 +534,44 @@ static void iiodev_data(int fd, void *dat)
 			if ((isnan(el->oldvalue) && isnan(valf)) || fabs(el->oldvalue - valf) < el->hyst)
 				;
 			else {
-				printf("%s %s: %s\n", dev->hname, el->name, payload ?: mydtostr_align2(valf, el->hyst));
+				printf("%s %s: %s\n", dev->label ?: dev->hname, el->name, payload ?: mydtostr_align2(valf, el->hyst));
 				el->oldvalue = valf;
 			}
 			continue;
 		}
 
 		for (it = items; it; it = it->next) {
+			if (it->refiio == el) {
+				/* set ref */
+				it->refvalue = valf;
+				++nitems;
+				continue;
+			}
 			if (it->iio != el)
 				continue;
 			++nitems;
-			/* test against hysteresis */
-			if (fabs(it->oldvalue - valf) < it->hyst)
-				continue;
-			pubitem(it, payload ?: mydtostr_align(valf, it->hyst));
-			it->oldvalue = valf;
+			if (payload)
+				pubitem(it, payload);
+			else
+				item_deliver_iio(it, el, valf,
+						sampletime, fakesampletime);
 		}
 		if (!nitems && strcmp(el->name, "timestamp")) {
 			int ret;
+			char *tpc;
 
+			asprintf(&tpc, "%s/%s/%s", mqtt_unknown_topic,
+					dev->label ?: dev->hname,
+					el->name);
 			/* publish to unknow topic */
 			payload = payload ?: mydtostr_align(valf, el->hyst);
-			ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(payload), payload, mqtt_qos, 0);
+			ret = mosquitto_publish(mosq, NULL, tpc, strlen(payload), payload, mqtt_qos, 0);
 			if (ret < 0)
-				mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_unknown_topic, mosquitto_strerror(ret));
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", tpc, mosquitto_strerror(ret));
+			free(tpc);
 		}
 		el->oldvalue = valf;
 	}
-	memcpy(dev->olddat, dev->dat, dev->datsize);
-	dev->olddatvalid = newdatvalid;
 	if (!nomqtt)
 		fflush(stdout);
 }
@@ -467,6 +581,14 @@ static int elementcmp(const void *va, const void *vb)
 	const struct iioel *a = va, *b = vb;
 
 	return a->index - b->index;
+}
+static int elementcmp_tsfirst(const void *va, const void *vb)
+{
+	const struct iioel *a = va, *b = vb;
+
+	if (!strcmp(a->name, "timestamp"))
+		return -1;
+	return elementcmp(a, b);
 }
 
 __attribute__((format(printf,2,3)))
@@ -543,7 +665,7 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 		el->hyst = 1e-2;
 	} else {
 		el->si_mult = 1;
-		el->hyst = 0;
+		el->hyst = 1;
 	}
 	/* invalidate the cache */
 	el->oldvalue = NAN;
@@ -552,16 +674,12 @@ static void load_element(const struct iiodev *dev, struct iioel *el)
 /* link iioel to item */
 static void link_element(const struct iiodev *dev, const struct iioel *el, struct item *it)
 {
-	mylog(LOG_INFO, "link %s,%s to %s", dev->hname, el->name, it->topic);
+	mylog(LOG_INFO, "link %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
 	/* link */
 	it->iio = el;
 	/* inherit hysteris if not set */
 	if (isnan(it->hyst))
-		it->hyst = el->hyst;
-	if (!isnan(it->oldvalue) || !isnan(el->oldvalue)) {
-		it->oldvalue = el->oldvalue;
-		pubitem(it, mydtostr_align(it->oldvalue, it->hyst));
-	}
+		it->hyst = el->hyst * it->mul;
 }
 
 /* link existing items to new iioel */
@@ -574,12 +692,19 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 		return;
 	for (it = items; it; it = it->next) {
 		/* match device name */
-		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+		if (strcmp(it->device, dev->name)
+				&& strcmp(it->device, dev->hname)
+				&& strcmp(it->device, dev->label ?: "")
+				)
 			continue;
 		/* match element */
-		if (strcmp(it->element, el->name))
-			continue;
-		link_element(dev, el, it);
+		if (!strcmp(it->element, el->name)) {
+			link_element(dev, el, it);
+
+		} else if (it->refelement && !strcmp(it->refelement, el->name)) {
+			it->refiio = el;
+			mylog(LOG_INFO, "ref  %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
+		}
 	}
 }
 
@@ -587,17 +712,29 @@ static void link_elements(struct iiodev *dev, struct iioel *el)
 static void link_item(struct item *it)
 {
 	struct iiodev *dev;
+	struct iioel *el;
 	int j;
 
 	for (dev = iiodevs; dev; dev = dev->next) {
 		/* match device name */
-		if (strcmp(it->device, dev->name) && strcmp(it->device, dev->hname))
+		if (strcmp(it->device, dev->name)
+				&& strcmp(it->device, dev->hname)
+				&& strcmp(it->device, dev->label ?: "")
+				)
 			continue;
 		for (j = 0; j < dev->nels; ++j) {
-			if (strcmp(it->element, dev->els[j].name))
-				continue;
-			link_element(dev, &dev->els[j], it);
-			return;
+			el = dev->els+j;
+			if (!strcmp(it->element, el->name)) {
+				link_element(dev, el, it);
+				if (!it->refelement || it->refiio)
+					return;
+
+			} else if (it->refelement && !strcmp(it->refelement, el->name)) {
+				it->refiio = el;
+				mylog(LOG_INFO, "ref  %s,%s to %s", dev->label ?: dev->hname, el->name, it->topic);
+				if (it->iio)
+					return;
+			}
 		}
 	}
 	/* nothing found */
@@ -621,25 +758,31 @@ static void remove_iio(struct iiodev *dev)
 		dev->prev->next = dev->next;
 	/* cleanup elements */
 	for (el = dev->els; el < &dev->els[dev->nels]; ++el) {
-		free(el->name);
-		free(el);
+		mylog(LOG_INFO, "remove el %s", el->name);
 		/* unlink items */
 		for (it = items; it; it = it->next) {
 			if (it->iio == el) {
-				it->iio = NULL;
+				mylog(LOG_INFO, "remove from %s", it->topic);
 				if (!isnan(it->oldvalue)) {
 					it->oldvalue = NAN;
 					pubitem(it, NULL);
 				}
+				it->iio = NULL;
+			}
+			if (it->refiio == el) {
+				mylog(LOG_INFO, "remove from %s", it->topic);
+				it->refiio = NULL;
 			}
 		}
+		free(el->name);
 	}
 	/* cleanup */
+	zfree(dev->els);
 	libe_remove_fd(dev->fd);
 	close(dev->fd);
-	free(dev->olddat);
-	free(dev->dat);
-	free(dev->hname);
+	zfree(dev->dat);
+	zfree(dev->hname);
+	zfree(dev->label);
 	free(dev->name);
 	free(dev);
 }
@@ -669,6 +812,7 @@ static void add_device(const char *devname)
 	struct iioel *el;
 	static char filename[2048];
 	const char *humanname;
+	const char *label;
 
 	/* strip leading /dev/ */
 	if (!strncmp("/dev/", devname, 5))
@@ -702,6 +846,9 @@ static void add_device(const char *devname)
 		memset(dev, 0, sizeof(*dev));
 		dev->name = strdup(devname);
 		dev->hname = strdup(humanname ?: devname);
+		label = prop_read2(ENOENT, "/sys/bus/iio/devices/%s/label", devname);
+		if (label && *label)
+			dev->label = strdup(label);
 
 		/* open file */
 		char filename[128];
@@ -765,8 +912,11 @@ static void add_device(const char *devname)
 		el->oldvalue = NAN;
 		/* fill element */
 		el->name = strndup(elname+4, strlen(elname)-7); /* strip in_*_en from name */
+		mylog(LOG_INFO, "new channel (%s) %s, '%s': %s", dev->name,
+				dev->hname,
+				dev->label ?: "",
+				el->name);
 		load_element(dev, el);
-		mylog(LOG_INFO, "new channel (%s) %s, %s", dev->name, dev->hname, el->name);
 	}
 	/* sort by index */
 	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp);
@@ -782,14 +932,16 @@ static void add_device(const char *devname)
 			dev->datsize += el->bytesused - mod;
 		el->location = dev->datsize;
 		dev->datsize += el->bytesused;
-		link_elements(dev, el);
 	}
+	/* now, sort similarly, but put timestamp first */
+	qsort(dev->els, dev->nels, sizeof(*dev->els), elementcmp_tsfirst);
+	/* only link after final sorting */
+	for (el = dev->els; el < dev->els+dev->nels; ++el)
+		link_elements(dev, el);
 	/* prepare read buffer */
 	dev->dat = realloc(dev->dat, dev->datsize);
-	dev->olddat = realloc(dev->olddat, dev->datsize);
-	if (dev->datsize && (!dev->dat || !dev->olddat))
+	if (dev->datsize && !dev->dat)
 		mylog(LOG_ERR, "(re)alloc %u dat for %s: %s", dev->datsize, dev->hname, ESTR(errno));
-	dev->olddatvalid = 0;
 	globfree(&els);
 }
 
@@ -917,6 +1069,10 @@ int main(int argc, char *argv[])
 
 	/* MQTT start */
 	if (!nomqtt) {
+		str = getenv("MQTT_KEEPALIVE");
+		if (str)
+			mqtt_keepalive = strtoul(str, NULL, 0);
+
 		mosquitto_lib_init();
 		sprintf(mqtt_name, "%s-%i", NAME, getpid());
 		mosq = mosquitto_new(mqtt_name, true, 0);
@@ -949,6 +1105,9 @@ int main(int argc, char *argv[])
 	int sigfd;
 
 	sigfillset(&sigmask);
+	if (getenv("DEBUGGING"))
+		/* for debugging */
+		sigdelset(&sigmask, SIGINT);
 
 	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0)
 		mylog(LOG_ERR, "sigprocmask: %s", ESTR(errno));
@@ -969,6 +1128,9 @@ int main(int argc, char *argv[])
 			libe_flush();
 	}
 
+	if (!mqtt_qos)
+		mqtt_qos = 1;
+	mylog(LOG_DEBUG, "terminating");
 	if (nomqtt)
 		goto mqtt_done;
 

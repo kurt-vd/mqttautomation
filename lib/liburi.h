@@ -17,6 +17,9 @@ struct uri {
 	int nparams; /* used */
 	int sparams; /* allocated */
 	char **params;
+	/* keep local copy of original url memory */
+	char *mem;
+	char *hoststr;
 };
 
 extern void lib_parse_uri(const char *uri, struct uri *);

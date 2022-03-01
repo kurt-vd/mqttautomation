@@ -6,10 +6,17 @@
 
 #include "liburi.h"
 
+static inline void xfree(void *dat)
+{
+	if (dat)
+		free(dat);
+}
+
 void lib_clean_uri(struct uri *p)
 {
-	if (p->params)
-		free(p->params);
+	xfree(p->mem);
+	xfree(p->hoststr);
+	xfree(p->params);
 	memset(p, 0, sizeof(*p));
 }
 
@@ -27,15 +34,12 @@ const char *lib_uri_param(struct uri *p, const char *key)
 
 void lib_parse_uri(const char *uri, struct uri *p)
 {
-	static char *copy;
-	static char *hoststr;
 	char *str, *tmp;
 
+	xfree(p->mem);
 	memset(p, 0, sizeof(*p));
-	if (copy)
-		free(copy);
-	copy = strdup(uri ?: "");
-	uri = copy;
+	p->mem = strdup(uri ?: "");
+	uri = p->mem;
 
 	str = strstr(uri, "://");
 	if (str) {
@@ -131,10 +135,7 @@ void lib_parse_uri(const char *uri, struct uri *p)
 			p->port = 0;
 	} else if (str > uri) {
 		/* duplicate host, without loosing the seperating / */
-		if (hoststr)
-			free(hoststr);
-		hoststr = strndup(uri, str-uri);
-		p->host = hoststr;
+		p->host = p->hoststr = strndup(uri, str-uri);
 		uri = str;
 	}
 unix_sock:

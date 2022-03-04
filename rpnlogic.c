@@ -1422,7 +1422,7 @@ static struct lookup {
 	{ "hyst2", rpn_do_hyst2, },
 	{ "hyst", rpn_do_hyst2, },
 	{ "throttle", rpn_do_debounce2, },
-	{ "avgtime", rpn_do_avgtime, RPNFN_WALLTIME, sizeof(struct avgtime), },
+	{ "avgtime", rpn_do_avgtime, RPNFN_PERIODIC | RPNFN_WALLTIME, sizeof(struct avgtime), },
 	{ "ravg", rpn_do_running_avg, 0, sizeof(struct running),
 		.free = free_running, },
 	{ "rmin", rpn_do_running_min, 0, sizeof(struct running),

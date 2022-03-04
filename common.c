@@ -229,7 +229,7 @@ void send_self_sync(struct mosquitto *mosq, int qos)
 {
 	int ret;
 
-	sprintf(myuuid, "%i-%li-%i", getpid(), time(NULL), rand());
+	sprintf(myuuid, "%i-%li-%i", getpid(), (long)time(NULL), rand());
 
 	ret = mosquitto_subscribe(mosq, NULL, selfsynctopic, qos);
 	if (ret)

@@ -38,6 +38,7 @@ static const char help_msg[] =
 	" -l, --local=HOST[:PORT][/path] Specify local MQTT host+port and prefix (default: localhost)\n"
 	" -h, --host=HOST[:PORT][/path] Specify remote MQTT host+port and prefix\n"
 	" -i, --id=NAME		clientid prefix\n"
+	" -C, --connection=TOPIC publish connection state to TOPIC\n"
 	"\n"
 	"Parameters\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -52,6 +53,7 @@ static struct option long_opts[] = {
 	{ "local", required_argument, NULL, 'l', },
 	{ "host", required_argument, NULL, 'h', },
 	{ "id", required_argument, NULL, 'i', },
+	{ "connection", required_argument, NULL, 'C', },
 
 	{ },
 };
@@ -59,7 +61,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?l:h:i:";
+static const char optstring[] = "Vv?l:h:i:C:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -78,6 +80,7 @@ struct host {
 	const char *prefix;
 	int prefixlen;
 	struct uri uri;
+	const char *conntopic;
 
 	struct host *remote;
 	struct mosquitto *mosq;
@@ -179,6 +182,17 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 		free(topic);
 }
 
+static void mqtt_pub_conntopic(struct host *h, const char *value)
+{
+	int ret;
+
+	if (h->conntopic) {
+		ret = mosquitto_publish(h->mosq, &h->req_mid, h->conntopic, strlen(value ?: ""), value, 1, 1);
+		if (ret)
+			mylog(LOG_ERR, "[%s] publish %s: %s", h->name, h->conntopic, mosquitto_strerror(ret));
+	}
+}
+
 static void mqtt_pub_cb(struct mosquitto *mosq, void *dat, int mid)
 {
 	struct host *h = dat;
@@ -191,6 +205,7 @@ static void mqtt_conn_cb(struct mosquitto *mosq, void *dat, int rc)
 
 	mylog(LOG_NOTICE, "[%s] connect: %i, %s", h->name, rc, mosquitto_connack_string(rc));
 	h->connected = 1;
+	mqtt_pub_conntopic(h->peer, "1");
 }
 static void mqtt_disconn_cb(struct mosquitto *mosq, void *dat, int rc)
 {
@@ -203,6 +218,7 @@ static void mqtt_disconn_cb(struct mosquitto *mosq, void *dat, int rc)
 	} else {
 		mylog(LOG_INFO, "[%s] disconnect: %i", h->name, rc);
 	}
+	mqtt_pub_conntopic(h->peer, "0");
 }
 
 static void mqtt_maintenance(void *dat)
@@ -306,6 +322,11 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 	mosquitto_connect_callback_set(h->mosq, mqtt_conn_cb);
 	mosquitto_log_callback_set(h->mosq, mqtt_log_cb);
 	mosquitto_int_option(h->mosq, MOSQ_OPT_PROTOCOL_VERSION, MQTT_PROTOCOL_V5);
+	if (h->conntopic) {
+		ret = mosquitto_will_set(h->mosq, h->conntopic, 4, "lost", 1, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_will_set: %s", mosquitto_strerror(ret));
+	}
 
 	ret = mosquitto_connect(h->mosq, h->host, h->port, h->keepalive);
 	if (ret)
@@ -332,6 +353,7 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 		if (h->prefix)
 			free(subtopic);
 	}
+	mqtt_pub_conntopic(h, "0");
 }
 static int mqtt_idle(struct host *h)
 {
@@ -370,6 +392,9 @@ int main(int argc, char *argv[])
 		break;
 	case 'i':
 		clientid_prefix = optarg;
+		break;
+	case 'C':
+		local.conntopic = optarg;
 		break;
 
 	default:

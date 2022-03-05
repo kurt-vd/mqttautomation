@@ -94,6 +94,8 @@ struct host local = {
 	.port = 1883,
 	.keepalive = 10,
 	.qos = 1,
+	.prefix = "bridge/",
+	.prefixlen = 7,
 	.peer = &remote,
 }, remote = {
 	.name = "remote",
@@ -276,7 +278,8 @@ static void parse_url(const char *url, struct host *h)
 		h->port = h->uri.port;
 	if (h->uri.path)
 		h->prefix = h->uri.path+1/* skip leading / */;
-
+	else
+		h->prefix = NULL;
 
 	h->prefixlen = strlen(h->prefix ?: "");
 	str = lib_uri_param(&h->uri, "keepalive");

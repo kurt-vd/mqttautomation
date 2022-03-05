@@ -1659,7 +1659,10 @@ int rpn_collect_flags(struct rpn *rpn)
 {
 	int flags = 0;
 
-	for (; rpn; rpn = rpn->next)
+	for (; rpn; rpn = rpn->next) {
 		flags |= rpn->flags;
+		if (rpn->lookup)
+			flags |= RPNFN_LOGIC;
+	}
 	return flags;
 }

@@ -44,6 +44,7 @@ void rpn_rebase(struct rpn *first, struct rpn **newptr);
 int rpn_collect_flags(struct rpn *);
 #define RPNFN_PERIODIC	1 /* This will generate output without external events */
 #define RPNFN_WALLTIME	2 /* depends on wall time */
+#define RPNFN_LOGIC 4 /* no plain copy or constant */
 
 /* imported function */
 extern const char *rpn_lookup_env(const char *str, struct rpn *);

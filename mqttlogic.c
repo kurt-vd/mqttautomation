@@ -396,7 +396,11 @@ static void do_logic(struct item *it, struct topic *trigger)
 {
 	int ret;
 	const char *result;
-	int loglevel = (!trigger && (it->logicflags & RPNFN_PERIODIC)) ? LOG_INFO : LOG_NOTICE;
+	int loglevel = LOG_NOTICE;
+
+	if ((!trigger && (it->logicflags & RPNFN_PERIODIC))
+		|| !(it->logicflags & RPNFN_LOGIC))
+		loglevel = LOG_INFO;
 
 	curritem = it;
 	lastrpntopic = NULL;

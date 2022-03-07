@@ -9,6 +9,7 @@
 
 #include <unistd.h>
 #include <getopt.h>
+#include <regex.h>
 #include <syslog.h>
 #include <sys/signalfd.h>
 #include <mosquitto.h>
@@ -48,6 +49,10 @@ static const char help_msg[] =
 	" -i, --id=NAME		clientid prefix\n"
 	" -n, --dryrun		Do not really publich\n"
 	" -C, --connection=TOPIC publish connection state to TOPIC\n"
+	" -L REGEX		conflict resolution: prefer local\n"
+	"			for topics matching REGEX\n"
+	" -H REGEX		conflict resolution: prefer host\n"
+	"			for topics matching REGEX\n"
 	"\n"
 	"Parameters\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -71,7 +76,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?l:h:i:nC:";
+static const char optstring[] = "Vv?l:h:i:nC:L:H:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -133,6 +138,56 @@ struct host local = {
 
 #define myfree(x) ({ if (x) { free(x); (x) = NULL; }})
 
+/* conflict resolving */
+struct prefer {
+	struct prefer *next;
+	struct host *host;
+	regex_t regex;
+};
+
+static struct prefer *prefer, *preferlast;
+
+static const char *regex_errstr(int regex_errno, regex_t *pregex)
+{
+	static char msg[256];
+
+	regerror(regex_errno, pregex, msg, sizeof(msg));
+	return msg;
+}
+
+static void add_prefer(struct host *host, const char *str)
+{
+	struct prefer *pr;
+
+	pr = malloc(sizeof(*pr));
+	if (!pr)
+		mylog(LOG_ERR, "malloc prefer: %s", ESTR(errno));
+	memset(pr, 0, sizeof(*pr));
+
+	pr->host = host;
+
+	int ret = regcomp(&pr->regex, str, REG_NOSUB);
+	if (ret)
+		mylog(LOG_ERR, "regex '%s': %s", str, regex_errstr(ret, &pr->regex));
+	if (preferlast)
+		preferlast->next = pr;
+	else
+		/* first one in list */
+		prefer = pr;
+	preferlast = pr;
+}
+
+static struct host *resolve_conflict(const char *topic)
+{
+	struct prefer *pr;
+
+	for (pr = prefer; pr; pr = pr->next) {
+		if (!regexec(&pr->regex, topic, 0, NULL, 0))
+			return pr->host;
+	}
+	return NULL;
+}
+
 /* cache */
 static void mqtt_forward(struct host *h, const char *topic, int len, const void *dat, int qos, int retain);
 
@@ -186,6 +241,7 @@ static int payloadcmp(const void *data, int lena, const void *datb, int lenb)
 static void start_forwarding(void *dat)
 {
 	struct cache *it;
+	struct host *master;
 
 	forwarding = 1;
 	mylog(LOG_NOTICE, "start sync");
@@ -194,13 +250,26 @@ static void start_forwarding(void *dat)
 		if (!payloadcmp(it->lrecv.dat, it->lrecv.len, it->rrecv.dat, it->rrecv.len))
 			/* no diff, no action */
 			continue;
-		if (it->rrecv.len && !it->lrecv.len) {
+
+		if (it->rrecv.len && !it->lrecv.len)
+			master = &remote;
+		else if (!it->rrecv.len && it->lrecv.len)
+			master = &local;
+		else if (it->rrecv.len && it->lrecv.len) {
+			master = resolve_conflict(it->topic);
+			if (master)
+				mylog(LOG_WARNING, "conflict on %s: use %s", it->topic, master->name);
+		} else
+			master = NULL;
+
+		if (master == &remote)
 			mqtt_forward(&local, it->topic, it->rrecv.len, it->rrecv.dat, it->rrecv.qos, it->rrecv.retain);
-		} else if (!it->rrecv.len && it->lrecv.len) {
+
+		else if (master == &local)
 			mqtt_forward(&remote, it->topic, it->lrecv.len, it->lrecv.dat, it->lrecv.qos, it->lrecv.retain);
-		} else {
+
+		else
 			mylog(LOG_WARNING, "conflict on %s", it->topic);
-		}
 		myfree(it->topic);
 		myfree(it->lrecv.dat);
 		myfree(it->rrecv.dat);
@@ -622,6 +691,12 @@ int main(int argc, char *argv[])
 		dryrun = 1;
 	case 'C':
 		local.conntopic = optarg;
+		break;
+	case 'L':
+		add_prefer(&local, optarg);
+		break;
+	case 'H':
+		add_prefer(&remote, optarg);
 		break;
 
 	default:

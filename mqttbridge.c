@@ -39,6 +39,8 @@ static const char help_msg[] =
 	" -h, --host=HOST[:PORT][/path] Specify remote MQTT host+port and prefix\n"
 	"			options:\n"
 	"			qos=VALUE (default 1)\n"
+	"			maxqos=VALUE (default 2)\n"
+	"			retain=VALUE (default 1, set to 0 to turn off retain)\n"
 	"			keepalive=VALUE (default 10)\n"
 	"			proto=(5,4,3) (default 5)\n"
 	"			cert=FILE for SSL\n"
@@ -87,6 +89,8 @@ struct host {
 	int port;
 	int keepalive;
 	int qos;
+	int maxqos;
+	int retain;
 	int proto;
 	const char *prefix;
 	int prefixlen;
@@ -110,6 +114,8 @@ struct host local = {
 	.port = 1883,
 	.keepalive = 10,
 	.qos = 1,
+	.maxqos = 2,
+	.retain = 1,
 	.proto = MQTT_PROTOCOL_V5,
 	.prefix = "bridge/",
 	.prefixlen = 7,
@@ -119,6 +125,8 @@ struct host local = {
 	.port = 1883,
 	.keepalive = 10,
 	.qos = 1,
+	.maxqos = 2,
+	.retain = 1,
 	.proto = MQTT_PROTOCOL_V5,
 	.peer = &local,
 };
@@ -322,6 +330,10 @@ static void mqtt_forward(struct host *h, const char *topic, int len, const void 
 		strcpy(topic2, h->prefix);
 		strcpy(topic2 + h->prefixlen, topic);
 	}
+	if (qos > h->maxqos)
+		qos = h->maxqos;
+	if (retain)
+		retain = h->retain;
 
 	mylog(LOG_INFO, "[%s] forward %s", h->name, topic);
 	ret = mosquitto_publish(h->mosq, &h->req_mid, topic2, len, dat, qos, retain);
@@ -489,6 +501,12 @@ static void parse_url(const char *url, struct host *h)
 	str = lib_uri_param(&h->uri, "qos");
 	if (str)
 		h->qos = strtol(str, NULL, 0);
+	str = lib_uri_param(&h->uri, "maxqos");
+	if (str)
+		h->maxqos = strtol(str, NULL, 0);
+	str = lib_uri_param(&h->uri, "retain");
+	if (str)
+		h->retain = strtol(str, NULL, 0);
 	str = lib_uri_param(&h->uri, "proto");
 	if (str) {
 		h->proto = strtoul(str, NULL, 0);

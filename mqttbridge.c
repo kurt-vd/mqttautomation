@@ -40,6 +40,7 @@ static const char help_msg[] =
 	"			options:\n"
 	"			qos=VALUE (default 1)\n"
 	"			keepalive=VALUE (default 10)\n"
+	"			proto=(5,4,3) (default 5)\n"
 	" -i, --id=NAME		clientid prefix\n"
 	" -n, --dryrun		Do not really publich\n"
 	" -C, --connection=TOPIC publish connection state to TOPIC\n"
@@ -83,6 +84,7 @@ struct host {
 	int port;
 	int keepalive;
 	int qos;
+	int proto;
 	const char *prefix;
 	int prefixlen;
 	struct uri uri;
@@ -103,6 +105,7 @@ struct host local = {
 	.port = 1883,
 	.keepalive = 10,
 	.qos = 1,
+	.proto = MQTT_PROTOCOL_V5,
 	.prefix = "bridge/",
 	.prefixlen = 7,
 	.peer = &remote,
@@ -111,6 +114,7 @@ struct host local = {
 	.port = 1883,
 	.keepalive = 10,
 	.qos = 1,
+	.proto = MQTT_PROTOCOL_V5,
 	.peer = &local,
 };
 
@@ -416,6 +420,12 @@ static void parse_url(const char *url, struct host *h)
 	str = lib_uri_param(&h->uri, "qos");
 	if (str)
 		h->qos = strtol(str, NULL, 0);
+	str = lib_uri_param(&h->uri, "proto");
+	if (str) {
+		h->proto = strtoul(str, NULL, 0);
+		if (h->proto < MQTT_PROTOCOL_V31 || h->proto > MQTT_PROTOCOL_V5)
+			mylog(LOG_ERR, "protocol v%u unsupported", h->proto);
+	}
 }
 
 static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
@@ -433,7 +443,7 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 	mosquitto_disconnect_callback_set(h->mosq, mqtt_disconn_cb);
 	mosquitto_connect_callback_set(h->mosq, mqtt_conn_cb);
 	mosquitto_log_callback_set(h->mosq, mqtt_log_cb);
-	mosquitto_int_option(h->mosq, MOSQ_OPT_PROTOCOL_VERSION, MQTT_PROTOCOL_V5);
+	mosquitto_int_option(h->mosq, MOSQ_OPT_PROTOCOL_VERSION, h->proto);
 	if (h->conntopic) {
 		ret = mosquitto_will_set(h->mosq, h->conntopic, 4, "lost", 1, 1);
 		if (ret)

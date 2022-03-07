@@ -41,6 +41,8 @@ static const char help_msg[] =
 	"			qos=VALUE (default 1)\n"
 	"			keepalive=VALUE (default 10)\n"
 	"			proto=(5,4,3) (default 5)\n"
+	"			cert=FILE for SSL\n"
+	"			key=FILE for SSL\n"
 	" -i, --id=NAME		clientid prefix\n"
 	" -n, --dryrun		Do not really publich\n"
 	" -C, --connection=TOPIC publish connection state to TOPIC\n"
@@ -515,6 +517,22 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 		ret = mosquitto_will_set(h->mosq, h->conntopic, 4, "lost", 1, 1);
 		if (ret)
 			mylog(LOG_ERR, "mosquitto_will_set: %s", mosquitto_strerror(ret));
+	}
+
+	const char *cert, *key;
+	cert = lib_uri_param(&h->uri, "cert");
+	key = lib_uri_param(&h->uri, "key");
+	if (cert && key) {
+		ret = mosquitto_int_option(h->mosq, MOSQ_OPT_TLS_USE_OS_CERTS, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_int_option TLS_USE_OS_CERTS 1: %s", mosquitto_strerror(ret));
+		ret = mosquitto_tls_set(h->mosq, NULL, NULL, cert, key, NULL);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_tls_set %s %s: %s", cert, key, mosquitto_strerror(ret));
+	} else if (cert) {
+		mylog(LOG_ERR, "[%s] cert %s, no key", h->name, cert);
+	} else if (key) {
+		mylog(LOG_ERR, "[%s] key %s, no cert", h->name, key);
 	}
 
 	ret = mosquitto_connect(h->mosq, h->host, h->port, h->keepalive);

@@ -113,6 +113,84 @@ struct host local = {
 
 #define myfree(x) ({ if (x) { free(x); (x) = NULL; }})
 
+/* cache */
+static void mqtt_forward(struct host *h, const char *topic, int len, const void *dat, int qos, int retain);
+
+static int forwarding;
+struct cache {
+	char *topic;
+	struct cpayload {
+		void *dat;
+		uint16_t len;
+		uint8_t qos;
+		uint8_t retain;
+	} lrecv, rrecv;
+};
+
+static struct cache *cachetable;
+static int cachesize, cachefill;
+
+static struct cache *find_cache(const char *topic)
+{
+	struct cache *it;
+
+	for (it = cachetable; it < cachetable+cachefill; ++it) {
+		if (!strcmp(topic, it->topic))
+			return it;
+	}
+	if (cachefill >= cachesize) {
+		cachesize = cachesize*2 ?: 1024;
+		cachetable = realloc(cachetable, sizeof(*cachetable)*cachesize);
+		if (!cachetable)
+			mylog(LOG_ERR, "realloc cache table %u: %s", cachesize, ESTR(errno));
+	}
+	/* 'it' may have been invalidated due to realloc, make it again */
+	it = &cachetable[cachefill++];
+	memset(it, 0, sizeof(*it));
+	it->topic = strdup(topic);
+	return it;
+}
+
+static int payloadcmp(const void *data, int lena, const void *datb, int lenb)
+{
+	if (!lena && !lenb)
+		return 0;
+	if (lena == lenb)
+		return memcmp(data, datb, lena);
+	if (lena < lenb)
+		return memcmp(data, datb, lena) ?: -1;
+	else
+		return memcmp(data, datb, lenb) ?: +1;
+}
+
+static void start_forwarding(void *dat)
+{
+	struct cache *it;
+
+	forwarding = 1;
+	mylog(LOG_NOTICE, "start sync");
+
+	for (it = cachetable; it < cachetable+cachefill; ++it) {
+		if (!payloadcmp(it->lrecv.dat, it->lrecv.len, it->rrecv.dat, it->rrecv.len))
+			/* no diff, no action */
+			continue;
+		if (it->rrecv.len && !it->lrecv.len) {
+			mqtt_forward(&local, it->topic, it->rrecv.len, it->rrecv.dat, it->rrecv.qos, it->rrecv.retain);
+		} else if (!it->rrecv.len && it->lrecv.len) {
+			mqtt_forward(&remote, it->topic, it->lrecv.len, it->lrecv.dat, it->lrecv.qos, it->lrecv.retain);
+		} else {
+			mylog(LOG_WARNING, "conflict on %s", it->topic);
+		}
+		myfree(it->topic);
+		myfree(it->lrecv.dat);
+		myfree(it->rrecv.dat);
+	}
+	myfree(cachetable);
+	cachetable = NULL;
+	cachefill = cachesize = 0;
+	mylog(LOG_NOTICE, "start forward");
+}
+
 /* MQTT iface */
 static void mqtt_log_cb(struct mosquitto *mosq, void *dat, int level, const char *str)
 {
@@ -190,6 +268,23 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	struct host *h = dat;
 
+	if (!forwarding) {
+		struct cache *c;
+		struct cpayload *cp;
+
+		c = find_cache(msg->topic + h->prefixlen);
+		cp = (h == &local) ? &c->lrecv : &c->rrecv;
+
+		myfree(cp->dat);
+		cp->len = msg->payloadlen;
+		cp->dat = malloc(cp->len + 1);
+		memcpy(cp->dat, msg->payload, cp->len);
+		((uint8_t *)cp->dat)[cp->len] = 0;
+		cp->qos = msg->qos;
+		cp->retain = msg->retain;
+		return;
+	}
+
 	mqtt_forward(h->peer, msg->topic + h->prefixlen, msg->payloadlen, msg->payload, msg->qos, msg->retain);
 }
 
@@ -217,6 +312,9 @@ static void mqtt_conn_cb(struct mosquitto *mosq, void *dat, int rc)
 	mylog(LOG_NOTICE, "[%s] connect: %i, %s", h->name, rc, mosquitto_connack_string(rc));
 	h->connected = 1;
 	mqtt_pub_conntopic(h->peer, "1");
+
+	if (h->peer->connected)
+		libt_add_timeout(1, start_forwarding, NULL);
 }
 static void mqtt_disconn_cb(struct mosquitto *mosq, void *dat, int rc)
 {

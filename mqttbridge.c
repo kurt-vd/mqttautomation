@@ -158,28 +158,31 @@ static void mqttloghook(int level, const char *payload)
 }
 
 /* reception */
+static void mqtt_forward(struct host *h, const char *topic, int len, const void *dat, int qos, int retain)
+{
+	char *topic2 = (char *)topic;
+	int ret;
+
+	if (h->prefixlen) {
+		topic2 = malloc(strlen(topic) + h->prefixlen + 1);
+		strcpy(topic2, h->prefix);
+		strcpy(topic2 + h->prefixlen, topic);
+	}
+
+	mylog(LOG_INFO, "[%s] forward %s", h->name, topic);
+	ret = mosquitto_publish(h->mosq, &h->req_mid, topic2, len, dat, qos, retain);
+	if (ret < 0)
+		mylog(LOG_ERR, "[%s] publish %s: %s", h->name, topic2, mosquitto_strerror(ret));
+
+	if (h->prefixlen)
+		free(topic2);
+}
+
 static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
 {
 	struct host *h = dat;
-	char *topic;
-	int ret;
 
-	if (h->peer->prefixlen) {
-		int topiclen = strlen(msg->topic) - h->prefixlen + h->peer->prefixlen;
-
-		topic = malloc(topiclen+1);
-		strcpy(topic, h->peer->prefix);
-		strcpy(topic + h->peer->prefixlen, msg->topic + h->prefixlen);
-	} else {
-		topic = (char *)msg->topic + h->prefixlen;
-	}
-
-	ret = mosquitto_publish(h->peer->mosq, &h->peer->req_mid, topic, msg->payloadlen, msg->payload, msg->qos, msg->retain);
-	if (ret < 0)
-		mylog(LOG_ERR, "[%s] publish %s: %s", h->peer->name, topic, mosquitto_strerror(ret));
-
-	if (h->peer->prefixlen)
-		free(topic);
+	mqtt_forward(h->peer, msg->topic + h->prefixlen, msg->payloadlen, msg->payload, msg->qos, msg->retain);
 }
 
 static void mqtt_pub_conntopic(struct host *h, const char *value)

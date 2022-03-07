@@ -78,6 +78,7 @@ static int sigterm;
 /* MQTT parameters */
 static const char *clientid_prefix;
 static int dryrun;
+struct queue;
 struct host {
 	const char *name;
 	const char *host;
@@ -90,6 +91,8 @@ struct host {
 	struct uri uri;
 	const char *conntopic;
 
+	struct queue *q; /* next */
+	struct queue *ql; /* prev */
 	struct host *remote;
 	struct mosquitto *mosq;
 	int req_mid;
@@ -198,6 +201,62 @@ static void start_forwarding(void *dat)
 	mylog(LOG_NOTICE, "start forward");
 }
 
+/* echo cancelling: keep queue of outgoing msgs */
+struct queue {
+	struct queue *next;
+	struct queue *prev;
+	char *topic;
+	void *dat;
+	int len;
+};
+
+static void add_queue(struct host *h, const char *topic, const void *dat, int len)
+{
+	struct queue *q;
+
+	int pktlen = sizeof(*q) + strlen(topic) + 1 + len + 1;
+	q = malloc(pktlen);
+	if (!q)
+		mylog(LOG_ERR, "malloc q %u: %s", pktlen, ESTR(errno));
+	memset(q, 0, sizeof(*q));
+	q->len = len;
+	q->dat = q+1;
+	q->topic = ((char *)q->dat)+len;
+	/* null-terminate payload too */
+	*q->topic++ = 0;
+	strcpy(q->topic, topic);
+	memcpy(q->dat, dat, len);
+	if (!h->q) {
+		q->prev = (struct queue *)&h->q;
+		h->q = h->ql = q;
+	} else {
+		q->prev = h->ql;
+		q->prev->next = q;
+	}
+}
+
+static int remove_queue(struct host *h, const char *topic, const void *dat, int len)
+{
+	struct queue *q;
+
+	for (q = h->q; q; q = q->next) {
+		if (!strcmp(topic, q->topic)) {
+			if (!payloadcmp(dat, len, q->dat, q->len)) {
+				q->prev->next = q->next;
+				if (q->next)
+					q->next->prev = q->prev;
+				else
+					h->ql = q->prev;
+				free(q);
+				return 1;
+			}
+			/* don't process further, we encountered the first in queue */
+			return 0;
+		}
+	}
+	return 0;
+}
+
 /* MQTT iface */
 static void mqtt_log_cb(struct mosquitto *mosq, void *dat, int level, const char *str)
 {
@@ -269,6 +328,8 @@ static void mqtt_forward(struct host *h, const char *topic, int len, const void 
 
 	if (h->prefixlen)
 		free(topic2);
+	if (h->proto < MQTT_PROTOCOL_V5)
+		add_queue(h, topic, dat, len);
 }
 
 static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -289,6 +350,12 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 		((uint8_t *)cp->dat)[cp->len] = 0;
 		cp->qos = msg->qos;
 		cp->retain = msg->retain;
+		return;
+	}
+
+	if (remove_queue(h, msg->topic + h->prefixlen, msg->payload, msg->payloadlen)) {
+		/* was echo, no more processing */
+		mylog(LOG_INFO, "[%s] cancel echo for %s", h->name, msg->topic + h->prefixlen);
 		return;
 	}
 

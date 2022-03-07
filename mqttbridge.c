@@ -38,6 +38,7 @@ static const char help_msg[] =
 	" -l, --local=HOST[:PORT][/path] Specify local MQTT host+port and prefix (default: localhost)\n"
 	" -h, --host=HOST[:PORT][/path] Specify remote MQTT host+port and prefix\n"
 	" -i, --id=NAME		clientid prefix\n"
+	" -n, --dryrun		Do not really publich\n"
 	" -C, --connection=TOPIC publish connection state to TOPIC\n"
 	"\n"
 	"Parameters\n"
@@ -53,6 +54,7 @@ static struct option long_opts[] = {
 	{ "local", required_argument, NULL, 'l', },
 	{ "host", required_argument, NULL, 'h', },
 	{ "id", required_argument, NULL, 'i', },
+	{ "dryrun", required_argument, NULL, 'n', },
 	{ "connection", required_argument, NULL, 'C', },
 
 	{ },
@@ -61,7 +63,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?l:h:i:C:";
+static const char optstring[] = "Vv?l:h:i:nC:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -71,6 +73,7 @@ static int sigterm;
 
 /* MQTT parameters */
 static const char *clientid_prefix;
+static int dryrun;
 struct host {
 	const char *name;
 	const char *host;
@@ -162,6 +165,11 @@ static void mqtt_forward(struct host *h, const char *topic, int len, const void 
 {
 	char *topic2 = (char *)topic;
 	int ret;
+
+	if (dryrun) {
+		mylog(LOG_NOTICE, "[%s] ... publish %s", h->name, topic);
+		return;
+	}
 
 	if (h->prefixlen) {
 		topic2 = malloc(strlen(topic) + h->prefixlen + 1);
@@ -396,6 +404,8 @@ int main(int argc, char *argv[])
 	case 'i':
 		clientid_prefix = optarg;
 		break;
+	case 'n':
+		dryrun = 1;
 	case 'C':
 		local.conntopic = optarg;
 		break;

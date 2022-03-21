@@ -450,6 +450,11 @@ static void mqtt_pub_conntopic(struct host *h, const char *value)
 	int ret;
 
 	if (h->conntopic) {
+		if (dryrun) {
+			mylog(LOG_NOTICE, "[%s] publish %s = %s", h->name, h->conntopic, value);
+			return;
+		}
+
 		ret = mosquitto_publish(h->mosq, &h->req_mid, h->conntopic, strlen(value ?: ""), value, 1, 1);
 		if (ret)
 			mylog(LOG_ERR, "[%s] publish %s: %s", h->name, h->conntopic, mosquitto_strerror(ret));
@@ -600,7 +605,7 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 	mosquitto_connect_callback_set(h->mosq, mqtt_conn_cb);
 	mosquitto_log_callback_set(h->mosq, mqtt_log_cb);
 	mosquitto_int_option(h->mosq, MOSQ_OPT_PROTOCOL_VERSION, h->proto);
-	if (h->conntopic) {
+	if (h->conntopic && !dryrun) {
 		ret = mosquitto_will_set(h->mosq, h->conntopic, 4, "lost", 1, 1);
 		if (ret)
 			mylog(LOG_ERR, "mosquitto_will_set: %s", mosquitto_strerror(ret));

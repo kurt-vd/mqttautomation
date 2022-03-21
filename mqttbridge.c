@@ -46,6 +46,7 @@ static const char help_msg[] =
 	"			proto=(5,4,3) (default 5)\n"
 	"			cert=FILE for SSL\n"
 	"			key=FILE for SSL\n"
+	"			fake-retain (forward all msgs as retained when a topic has once been retained)\n"
 	" -i, --id=NAME		clientid prefix\n"
 	" -n, --dryrun		Do not really publich\n"
 	" -C, --connection=TOPIC publish connection state to TOPIC\n"
@@ -97,6 +98,7 @@ struct host {
 	int maxqos;
 	int retain;
 	int proto;
+	uint8_t fakeretain;
 	const char *prefix;
 	int prefixlen;
 	struct uri uri;
@@ -205,7 +207,7 @@ struct cache {
 static struct cache *cachetable;
 static int cachesize, cachefill;
 
-static struct cache *find_cache(const char *topic)
+static struct cache *find_cache(const char *topic, int create)
 {
 	struct cache *it;
 
@@ -213,6 +215,8 @@ static struct cache *find_cache(const char *topic)
 		if (!strcmp(topic, it->topic))
 			return it;
 	}
+	if (!create)
+		return NULL;
 	if (cachefill >= cachesize) {
 		cachesize = cachesize*2 ?: 1024;
 		cachetable = realloc(cachetable, sizeof(*cachetable)*cachesize);
@@ -270,13 +274,17 @@ static void start_forwarding(void *dat)
 
 		else
 			mylog(LOG_WARNING, "conflict on %s", it->topic);
-		myfree(it->topic);
-		myfree(it->lrecv.dat);
-		myfree(it->rrecv.dat);
+		if (!local.fakeretain && !remote.fakeretain) {
+			myfree(it->topic);
+			myfree(it->lrecv.dat);
+			myfree(it->rrecv.dat);
+		}
 	}
-	myfree(cachetable);
-	cachetable = NULL;
-	cachefill = cachesize = 0;
+	if (!local.fakeretain && !remote.fakeretain) {
+		myfree(cachetable);
+		cachetable = NULL;
+		cachefill = cachesize = 0;
+	}
 	mylog(LOG_NOTICE, "start forward");
 }
 
@@ -423,7 +431,7 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 		struct cache *c;
 		struct cpayload *cp;
 
-		c = find_cache(msg->topic + h->prefixlen);
+		c = find_cache(msg->topic + h->prefixlen, 1);
 		cp = (h == &local) ? &c->lrecv : &c->rrecv;
 
 		myfree(cp->dat);
@@ -432,8 +440,20 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 		memcpy(cp->dat, msg->payload, cp->len);
 		((uint8_t *)cp->dat)[cp->len] = 0;
 		cp->qos = msg->qos;
-		cp->retain = msg->retain;
+		if (h->fakeretain)
+			cp->retain |= msg->retain;
+		else
+			cp->retain = msg->retain;
 		return;
+	}
+
+	int retain = msg->retain;
+	if (!msg->retain && h->fakeretain) {
+		struct cache *c;
+
+		c = find_cache(msg->topic + h->prefixlen, 1);
+		if (c)
+			retain = msg->retain;
 	}
 
 	if (remove_queue(h, msg->topic + h->prefixlen, msg->payload, msg->payloadlen)) {
@@ -442,7 +462,7 @@ static void mqtt_msg_cb(struct mosquitto *mosq, void *dat, const struct mosquitt
 		return;
 	}
 
-	mqtt_forward(h->peer, msg->topic + h->prefixlen, msg->payloadlen, msg->payload, msg->qos, msg->retain);
+	mqtt_forward(h->peer, msg->topic + h->prefixlen, msg->payloadlen, msg->payload, msg->qos, retain);
 }
 
 static void mqtt_pub_conntopic(struct host *h, const char *value)
@@ -581,6 +601,7 @@ static void parse_url(const char *url, struct host *h)
 	str = lib_uri_param(&h->uri, "retain");
 	if (str)
 		h->retain = strtol(str, NULL, 0);
+	h->fakeretain = lib_uri_param(&h->uri, "fake-retain") ? 1 : 0;
 	str = lib_uri_param(&h->uri, "proto");
 	if (str) {
 		h->proto = strtoul(str, NULL, 0);

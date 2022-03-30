@@ -751,6 +751,7 @@ int main(int argc, char *argv[])
 	}
 	/* cleanup */
 	mylog(LOG_INFO, "terminate");
+	mqtt_pub_conntopic(&local, "0");
 
 	for (; local.mosq || remote.mosq;) {
 		if (mqtt_idle(&remote))

@@ -607,6 +607,18 @@ static void setup_mqtt(struct host *h, const char *clientid, char *argv[])
 	mosquitto_connect_callback_set(h->mosq, mqtt_conn_cb);
 	mosquitto_log_callback_set(h->mosq, mqtt_log_cb);
 	mosquitto_int_option(h->mosq, MOSQ_OPT_PROTOCOL_VERSION, h->proto);
+	mylog(LOG_NOTICE, "[%s] proto %u", h->name, h->proto);
+#ifdef MOSQ_OPT_PRIVATE
+	if (h->proto < 5) {
+		ret = mosquitto_int_option(h->mosq, MOSQ_OPT_PRIVATE, 0x80);
+		if (ret)
+			mylog(LOG_WARNING, "[%s] private: %s", h->name, mosquitto_strerror(ret));
+		else {
+			mylog(LOG_NOTICE, "[%s] private ok", h->name);
+		}
+	}
+#endif
+
 	if (h->conntopic && !dryrun) {
 		ret = mosquitto_will_set(h->mosq, h->conntopic, 4, "lost", 1, 1);
 		if (ret)

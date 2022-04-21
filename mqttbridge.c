@@ -92,11 +92,11 @@ struct host {
 	const char *name;
 	const char *host;
 	int port;
-	int keepalive;
-	int qos;
-	int maxqos;
-	int retain;
-	int proto;
+	uint8_t keepalive;
+	uint8_t qos;
+	uint8_t maxqos;
+	uint8_t retain;
+	uint8_t proto;
 	const char *prefix;
 	int prefixlen;
 	struct uri uri;

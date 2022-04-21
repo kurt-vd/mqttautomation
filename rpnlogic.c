@@ -682,6 +682,8 @@ static void parse_slope(struct rpn *me, char *str)
 	struct slope *priv = rpn_priv(me);
 	char *tok;
 
+	if (!str)
+		return;
 	for (tok = strtok(str, ","); tok; tok = strtok(NULL, ",")) {
 		if (priv->npos >= priv->spos) {
 			priv->spos += 16;

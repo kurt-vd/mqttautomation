@@ -263,7 +263,8 @@ int rpn_write_env(const char *value, const char *name, struct rpn *rpn)
 {
 	int ret;
 
-	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s", name, rpn->cookie ? '=' : '>', value);
+	mylog(LOG_NOTICE, "mosquitto_publish %s%c%s (in %s)", name, rpn->cookie ? '=' : '>', value,
+			(curritem && curritem->topic) ? curritem->topic : "?");
 	if (dryrun)
 		return 0;
 	ret = mosquitto_publish(mosq, NULL, name, strlen(value), value, mqtt_qos, rpn->cookie);

@@ -595,6 +595,7 @@ struct slope {
 	double setpoint;
 	double step;
 	double delay;
+	int timer;
 	int busy;
 	double *pos;
 	int npos, spos;
@@ -642,8 +643,8 @@ static void slope_step(void *dat)
 				return;
 			}
 		}
+		priv->out = priv->pos[0];
 		priv->busy = 0;
-		return;
 
 	} else if (priv->pos && (priv->setpoint > priv->out)) {
 		for (j = 0; j < priv->npos; ++j) {
@@ -654,26 +655,35 @@ static void slope_step(void *dat)
 				return;
 			}
 		}
+		priv->out = priv->pos[priv->npos-1];
 		priv->busy = 0;
-		return;
+
+	} else if (priv->pos) {
+		priv->busy = 0;
+
+	} else if (!priv->pos) {
+		step = priv->step;
+
+		if (priv->setpoint > priv->out)
+			/* increase */
+			dir = +1;
+		else
+			/* decrease */
+			dir = -1;
+
+		/* avoid floating point small deviations */
+		priv->out = round((priv->out + step*dir)/step)*step;
+		//priv->out += step*dir;
+		slope_test_final(dat, dir);
 	}
-
-	step = priv->step;
-
-	if (priv->out < priv->setpoint)
-		/* increase */
-		dir = +1;
-	else
-		/* decrease */
-		dir = -1;
-
-	priv->out += step*dir;
-	slope_test_final(dat, dir);
 }
 
 static void on_slope_step(void *dat)
 {
-	slope_step(dat);
+	struct rpn *me = dat;
+	struct slope *priv = rpn_priv(me);
+
+	priv->timer = 1;
 	rpn_run_again(dat);
 }
 
@@ -713,7 +723,12 @@ static void rpn_do_slope(struct stack *st, struct rpn *me)
 
 		/* run slope */
 		priv->busy = 1;
+		priv->timer = 1;
 		me->timeout = on_slope_step;
+	}
+
+	if (priv->timer) {
+		priv->timer = 0;
 		slope_step(me);
 	}
 

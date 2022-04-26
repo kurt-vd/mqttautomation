@@ -643,8 +643,8 @@ static void slope_step(void *dat)
 				return;
 			}
 		}
+		priv->out = priv->pos[0];
 		priv->busy = 0;
-		return;
 
 	} else if (priv->pos && (priv->setpoint > priv->out)) {
 		for (j = 0; j < priv->npos; ++j) {
@@ -655,21 +655,27 @@ static void slope_step(void *dat)
 				return;
 			}
 		}
+		priv->out = priv->pos[priv->npos-1];
 		priv->busy = 0;
-		return;
+
+	} else if (priv->pos) {
+		priv->busy = 0;
+
+	} else if (!priv->pos) {
+		step = priv->step;
+
+		if (priv->setpoint > priv->out)
+			/* increase */
+			dir = +1;
+		else
+			/* decrease */
+			dir = -1;
+
+		/* avoid floating point small deviations */
+		priv->out = round((priv->out + step*dir)/step)*step;
+		//priv->out += step*dir;
+		slope_test_final(dat, dir);
 	}
-
-	step = priv->step;
-
-	if (priv->out < priv->setpoint)
-		/* increase */
-		dir = +1;
-	else
-		/* decrease */
-		dir = -1;
-
-	priv->out += step*dir;
-	slope_test_final(dat, dir);
 }
 
 static void on_slope_step(void *dat)

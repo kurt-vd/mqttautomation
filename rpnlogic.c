@@ -595,6 +595,7 @@ struct slope {
 	double setpoint;
 	double step;
 	double delay;
+	int timer;
 	int busy;
 	double *pos;
 	int npos, spos;
@@ -673,7 +674,10 @@ static void slope_step(void *dat)
 
 static void on_slope_step(void *dat)
 {
-	slope_step(dat);
+	struct rpn *me = dat;
+	struct slope *priv = rpn_priv(me);
+
+	priv->timer = 1;
 	rpn_run_again(dat);
 }
 
@@ -713,7 +717,12 @@ static void rpn_do_slope(struct stack *st, struct rpn *me)
 
 		/* run slope */
 		priv->busy = 1;
+		priv->timer = 1;
 		me->timeout = on_slope_step;
+	}
+
+	if (priv->timer) {
+		priv->timer = 0;
 		slope_step(me);
 	}
 

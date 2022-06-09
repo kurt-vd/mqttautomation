@@ -37,6 +37,7 @@ static const char help_msg[] =
 	" -v, --verbose		Be more verbose\n"
 	"\n"
 	" -c, --config=FILE	Load configuration from FILE\n"
+	"			/etc/mqttbridge.conf if none specified\n"
 	" -l, --local=HOST[:PORT][/path] Specify local MQTT host+port and prefix (default: localhost)\n"
 	" -h, --host=HOST[:PORT][/path] Specify remote MQTT host+port and prefix\n"
 	"			options:\n"
@@ -690,7 +691,7 @@ static int mqtt_idle(struct host *h)
     return 1;
 }
 
-static void load_config(const char *file)
+static void load_config(const char *file, int explicit)
 {
 	FILE *fp;
 	char *line = NULL, *tok;
@@ -701,6 +702,9 @@ static void load_config(const char *file)
 		fp = stdin;
 	} else {
 		fp = fopen(file, "r");
+		if (!fp && !explicit && errno == ENOENT)
+			/* ignore this */
+			return;
 		if (!fp)
 			mylog(LOG_ERR, "fopen %s r: %s", file, ESTR(errno));
 	}
@@ -740,6 +744,9 @@ static void load_config(const char *file)
 int main(int argc, char *argv[])
 {
 	int opt, ret;
+	int configs_done = 0;
+
+	myopenlog(NAME, 0, LOG_LOCAL2);
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -772,7 +779,8 @@ int main(int argc, char *argv[])
 		add_prefer(&remote, optarg);
 		break;
 	case 'c':
-		load_config(optarg);
+		++configs_done;
+		load_config(optarg, 1);
 		break;
 
 	default:
@@ -782,8 +790,8 @@ int main(int argc, char *argv[])
 		exit(1);
 		break;
 	}
-
-	myopenlog(NAME, 0, LOG_LOCAL2);
+	if (!configs_done)
+		load_config("/etc/mqttbridge.conf", 0);
 
 	if (!remote.host)
 		mylog(LOG_ERR, "no host for bridging, add -h parameter");

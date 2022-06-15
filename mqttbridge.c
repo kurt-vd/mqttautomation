@@ -36,6 +36,8 @@ static const char help_msg[] =
 	" -V, --version		Show version\n"
 	" -v, --verbose		Be more verbose\n"
 	"\n"
+	" -c, --config=FILE	Load configuration from FILE\n"
+	"			/etc/mqttbridge.conf if none specified\n"
 	" -l, --local=HOST[:PORT][/path] Specify local MQTT host+port and prefix (default: localhost)\n"
 	" -h, --host=HOST[:PORT][/path] Specify remote MQTT host+port and prefix\n"
 	"			options:\n"
@@ -56,6 +58,9 @@ static const char help_msg[] =
 	"\n"
 	"Parameters\n"
 	" PATTERN	A pattern to subscribe for\n"
+	"\n"
+	"Config file lines\n"
+	" prefer (local|remote) REGEX\n"
 	;
 
 #ifdef _GNU_SOURCE
@@ -64,6 +69,7 @@ static struct option long_opts[] = {
 	{ "version", no_argument, NULL, 'V', },
 	{ "verbose", no_argument, NULL, 'v', },
 
+	{ "config", required_argument, NULL, 'c', },
 	{ "local", required_argument, NULL, 'l', },
 	{ "host", required_argument, NULL, 'h', },
 	{ "id", required_argument, NULL, 'i', },
@@ -76,7 +82,7 @@ static struct option long_opts[] = {
 #define getopt_long(argc, argv, optstring, longopts, longindex) \
 	getopt((argc), (argv), (optstring))
 #endif
-static const char optstring[] = "Vv?l:h:i:nC:L:H:";
+static const char optstring[] = "Vv?c:l:h:i:nC:L:H:";
 
 /* logging */
 static int loglevel = LOG_WARNING;
@@ -159,6 +165,8 @@ static void add_prefer(struct host *host, const char *str)
 {
 	struct prefer *pr;
 
+	if (!str)
+		return;
 	pr = malloc(sizeof(*pr));
 	if (!pr)
 		mylog(LOG_ERR, "malloc prefer: %s", ESTR(errno));
@@ -683,9 +691,62 @@ static int mqtt_idle(struct host *h)
     return 1;
 }
 
+static void load_config(const char *file, int explicit)
+{
+	FILE *fp;
+	char *line = NULL, *tok;
+	size_t linesize = 0;
+	int ret;
+
+	if (!strcmp(file, "-")) {
+		fp = stdin;
+	} else {
+		fp = fopen(file, "r");
+		if (!fp && !explicit && errno == ENOENT)
+			/* ignore this */
+			return;
+		if (!fp)
+			mylog(LOG_ERR, "fopen %s r: %s", file, ESTR(errno));
+	}
+
+	for (;;) {
+		ret = getline(&line, &linesize, fp);
+		if (ret <= 0) {
+			if (feof(fp))
+				break;
+			mylog(LOG_ERR, "getline %s: %s", file, ESTR(errno));
+		}
+		if (*line == '#')
+			continue;
+		static const char sep[] = " \t\r\n\v\f";
+		tok = strtok(line, sep);
+		if (!tok || !*tok) {
+			continue;
+		} else if (!strcmp(tok, "prefer")) {
+			tok = strtok(NULL, sep) ?: "";
+			if (!strcmp(tok, "local")) {
+				add_prefer(&local, strtok(NULL, sep));
+			} else if (!strcmp(tok, "remote")) {
+				add_prefer(&remote, strtok(NULL, sep));
+			} else {
+				mylog(LOG_WARNING, "%s: prefer %s: unsupported", file, tok);
+			}
+		} else {
+			mylog(LOG_WARNING, "%s: %s: unsupported", file, tok);
+		}
+	}
+
+	fclose(fp);
+	if (line)
+		free(line);
+}
+
 int main(int argc, char *argv[])
 {
 	int opt, ret;
+	int configs_done = 0;
+
+	myopenlog(NAME, 0, LOG_LOCAL2);
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -717,6 +778,10 @@ int main(int argc, char *argv[])
 	case 'H':
 		add_prefer(&remote, optarg);
 		break;
+	case 'c':
+		++configs_done;
+		load_config(optarg, 1);
+		break;
 
 	default:
 		fprintf(stderr, "unknown option '%c'\n", opt);
@@ -725,8 +790,8 @@ int main(int argc, char *argv[])
 		exit(1);
 		break;
 	}
-
-	myopenlog(NAME, 0, LOG_LOCAL2);
+	if (!configs_done)
+		load_config("/etc/mqttbridge.conf", 0);
 
 	if (!remote.host)
 		mylog(LOG_ERR, "no host for bridging, add -h parameter");

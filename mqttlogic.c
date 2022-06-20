@@ -89,6 +89,7 @@ static const char *mqtt_onchangesuffix = "/onchange";
 static const char *mqtt_btns_suffix = "/button";
 static const char *mqtt_btnl_suffix = "/longbutton";
 static const char *mqtt_write_suffix = "/set";
+static const char *mqtt_flags_suffix = "/logicflags";
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
 static double long_btn_delay = 1.0;
@@ -111,6 +112,8 @@ struct item {
 	struct rpn *logic;
 	int logicflags;
 	int rpnflags;
+		#define RPNFL_VERBOSE	(1 << 0)
+		#define RPNFL_SILENT	(1 << 1)
 	struct rpn *onchange;
 	char *logic_payload;
 	char *onchange_payload;
@@ -399,7 +402,11 @@ static void do_logic(struct item *it, struct topic *trigger)
 	const char *result;
 	int loglevel = LOG_NOTICE;
 
-	if ((!trigger && (it->logicflags & RPNFN_PERIODIC))
+	if (it->rpnflags & RPNFL_VERBOSE)
+		loglevel = LOG_NOTICE;
+	else if (it->rpnflags & RPNFL_SILENT)
+		loglevel = LOG_DEBUG;
+	else if ((!trigger && (it->logicflags & RPNFN_PERIODIC))
 		|| !(it->logicflags & RPNFN_LOGIC))
 		loglevel = LOG_INFO;
 
@@ -640,6 +647,15 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		myfree(it->btnl_payload);
 		it->btnl_payload = strdup(msg->payload);
 		mylog(LOG_INFO, "new %s for %s", mqtt_btnl_suffix, it->topic);
+		return;
+	} else if (test_suffix(msg->topic, mqtt_flags_suffix)) {
+		it = get_item(msg->topic, mqtt_flags_suffix, 0);
+		if (!it)
+			;
+		if (strchr(msg->payload, 'l'))
+			it->rpnflags |= RPNFL_VERBOSE;
+		else if (strchr(msg->payload, 'L'))
+			it->rpnflags |= RPNFL_SILENT;
 		return;
 	}
 	/* find topic */

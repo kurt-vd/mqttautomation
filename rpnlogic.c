@@ -845,6 +845,10 @@ static void rpn_do_dup(struct stack *st, struct rpn *me)
 {
 	rpn_push_el(st, rpn_n(st, -1));
 }
+static void rpn_do_pop(struct stack *st, struct rpn *me)
+{
+	rpn_pop1(st);
+}
 static void rpn_do_swap(struct stack *st, struct rpn *me)
 {
 	struct rpn_el a = *rpn_pop1(st);
@@ -1426,6 +1430,7 @@ static struct lookup {
 	{ ">", rpn_do_gt, },
 
 	{ "dup", rpn_do_dup, },
+	{ "pop", rpn_do_pop, },
 	{ "swap", rpn_do_swap, },
 	{ "json", rpn_do_json, },
 	{ "?:", rpn_do_ifthenelse, },

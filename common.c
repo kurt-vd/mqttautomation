@@ -53,7 +53,7 @@ void mylog(int loglevel, const char *fmt, ...)
 	char *msg = NULL;
 
 	if (logtostderr < 0)
-		myopenlog(NULL, 0, LOG_LOCAL1);
+		logtostderr = abs(isatty(STDERR_FILENO));
 
 	if (logtostderr && ((loglevel & LOG_PRIMASK) > maxloglevel))
 		goto done;

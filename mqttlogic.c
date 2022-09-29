@@ -652,7 +652,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		it = get_item(msg->topic, mqtt_flags_suffix, 0);
 		if (!it)
 			;
-		if (strchr(msg->payload, 'l'))
+		else if (strchr(msg->payload, 'l'))
 			it->rpnflags |= RPNFL_VERBOSE;
 		else if (strchr(msg->payload, 'L'))
 			it->rpnflags |= RPNFL_SILENT;

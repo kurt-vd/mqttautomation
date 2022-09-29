@@ -1100,12 +1100,18 @@ static void rpn_do_wakeup2(struct stack *st, struct rpn *me)
 	rpn_push(st, me->cookie);
 	me->cookie = 0;
 }
-static void rpn_do_delta(struct stack *st, struct rpn *me)
+static void rpn_do_delta_impl(struct stack *st, struct rpn *me, double tref)
 {
-	rpn_do_wakeup(st, me);
-
+	double delay = rpn_pop1(st)->d;
 	double saved = rpn_pop1(st)->d;
 	double value = rpn_pop1(st)->d;
+
+	if (!(delay > 0.01))
+		delay = 1;
+	/* find 10msec after scheduled time */
+	double wait = libt_timetointerval4(tref, delay, 0.01, 0.000);
+	libt_add_timeout(wait, on_timeout, me);
+	me->timeout = on_timeout;
 
 	if (me->cookie & 1) {
 		if (isnan(saved))
@@ -1131,6 +1137,16 @@ nochange:
 		rpn_push(st, 0);
 	}
 	me->cookie &= ~0x01;
+}
+static void rpn_do_delta(struct stack *st, struct rpn *me)
+{
+	rpn_do_delta_impl(st, me, libt_walltime());
+}
+static void rpn_do_delta2(struct stack *st, struct rpn *me)
+{
+	double tref = rpn_pop1(st)->d;
+
+	rpn_do_delta_impl(st, me, tref);
 }
 
 static void rpn_do_timeofday(struct stack *st, struct rpn *me)
@@ -1478,6 +1494,7 @@ static struct lookup {
 	{ "wakeup", rpn_do_wakeup, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "wakeup2", rpn_do_wakeup2, RPNFN_PERIODIC | RPNFN_WALLTIME, },
 	{ "delta", rpn_do_delta, RPNFN_PERIODIC | RPNFN_WALLTIME, },
+	{ "delta2", rpn_do_delta2, RPNFN_PERIODIC, },
 	{ "timeofday", rpn_do_timeofday, RPNFN_WALLTIME, },
 	{ "dayofweek", rpn_do_dayofweek, RPNFN_WALLTIME, },
 	{ "abstime", rpn_do_abstime, RPNFN_WALLTIME, },

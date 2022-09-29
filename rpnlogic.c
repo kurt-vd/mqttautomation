@@ -1183,7 +1183,11 @@ static void rpn_do_strftime(struct stack *st, struct rpn *me)
 	struct rpn_el *fmt = rpn_pop1(st);
 	struct rpn_el *t = rpn_pop1(st);
 
-	time_t stamp = t->d;
+	time_t stamp;
+	if (isnan(t->d))
+		stamp = 0;
+	else
+		stamp = t->d;
 	strftime(buf, sizeof(buf), fmt->a, localtime(&stamp));
 	rpn_push_str(st, buf, NAN);
 }

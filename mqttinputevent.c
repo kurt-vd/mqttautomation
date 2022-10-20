@@ -13,12 +13,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <poll.h>
 #include <syslog.h>
 #include <sys/stat.h>
 #include <mosquitto.h>
 #include <linux/input.h>
 
+#include "lib/libt.h"
+#include "lib/libe.h"
 #include "common.h"
 
 /* overrule the toolchain provided struct input_event.
@@ -298,15 +299,92 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	}
 }
 
-int main(int argc, char *argv[])
+static void input_handler(int fd, void *dat)
 {
-	int opt, ret, j, cnt, nevs;
+	int ret, j, cnt, nevs;
 	struct item *it;
-	char *str;
-	char mqtt_name[32];
-	struct pollfd pf[2];
 	struct local_input_event evs[16];
 	char valuestr[32];
+
+	/* read input events */
+	ret = read(infd, evs, sizeof(evs));
+	if (ret < 0)
+		mylog(LOG_ERR, "read %s: %s", inputdev, ESTR(errno));
+	nevs = ret/sizeof(*evs);
+	for (j = 0; j < nevs; ++j) {
+		if (evs[j].type == EV_SYN || evs[j].type == EV_MSC)
+			/* ignore SYN events here */
+			continue;
+		cnt = 0;
+		for (it = items; it; it = it->next) {
+			if (it->evtype != evs[j].type || it->evcode != evs[j].code)
+				continue;
+			sprintf(valuestr, "%i", evs[j].value);
+			pubitem(it, valuestr);
+			++cnt;
+		}
+		if (mqtt_prefix && evs[j].type == EV_KEY) {
+			char *topic;
+
+			asprintf(&topic, "%s/key/%u", mqtt_prefix, evs[j].code);
+			sprintf(valuestr, "%i", evs[j].value);
+			ret = mosquitto_publish(mosq, NULL, topic, strlen(valuestr), valuestr, mqtt_qos, 0);
+			if (ret < 0)
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", topic, mosquitto_strerror(ret));
+			free(topic);
+			++cnt;
+		}
+		if (!cnt) {
+			sprintf(valuestr, "%u:%u %i", evs[j].type, evs[j].code, evs[j].value);
+			ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(valuestr), valuestr, mqtt_qos, 0);
+			if (ret < 0)
+				mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_unknown_topic, mosquitto_strerror(ret));
+		}
+	}
+}
+
+static void recvd_mosq(int fd, void *dat)
+{
+	struct mosquitto *mosq = dat;
+	int evs = libe_fd_evs(fd);
+	int ret;
+
+	if (evs & LIBE_RD) {
+		/* mqtt read ... */
+		ret = mosquitto_loop_read(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_read: %s", mosquitto_strerror(ret));
+	}
+	if (evs & LIBE_WR) {
+		/* flush mqtt write queue _after_ the timers have run */
+		ret = mosquitto_loop_write(mosq, 1);
+		if (ret)
+			mylog(LOG_ERR, "mosquitto_loop_write: %s", mosquitto_strerror(ret));
+	}
+}
+
+static void mqtt_maintenance(void *dat)
+{
+	int ret;
+	struct mosquitto *mosq = dat;
+
+	ret = mosquitto_loop_misc(mosq);
+	if (ret)
+		mylog(LOG_ERR, "mosquitto_loop_misc: %s", mosquitto_strerror(ret));
+	libt_add_timeout(2.3, mqtt_maintenance, dat);
+}
+
+void mosq_update_flags(void)
+{
+	if (mosq)
+		libe_mod_fd(mosquitto_socket(mosq), LIBE_RD | (mosquitto_want_write(mosq) ? LIBE_WR : 0));
+}
+
+int main(int argc, char *argv[])
+{
+	int opt, ret;
+	char *str;
+	char mqtt_name[32];
 
 	/* argument parsing */
 	while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) >= 0)
@@ -314,7 +392,7 @@ int main(int argc, char *argv[])
 	case 'V':
 		fprintf(stderr, "%s %s\nCompiled on %s %s\n",
 				NAME, VERSION, __DATE__, __TIME__);
-		fprintf(stderr, "struct input_event size: %u\n", (int)sizeof(*evs));
+		fprintf(stderr, "struct input_event size: %u\n", (int)sizeof(struct local_input_event));
 		exit(0);
 	case 'v':
 		++loglevel;
@@ -358,6 +436,7 @@ int main(int argc, char *argv[])
 	infd = open(inputdev, O_RDONLY);
 	if (infd < 0)
 		mylog(LOG_ERR, "open %s: %s", inputdev, ESTR(errno));
+	libe_add_fd(infd, input_handler, NULL);
 
 	/* MQTT start */
 	mosquitto_lib_init();
@@ -384,70 +463,16 @@ int main(int argc, char *argv[])
 			mylog(LOG_ERR, "mosquitto_subscribe %s: %s", argv[optind], mosquitto_strerror(ret));
 	}
 
-	/* prepare poll */
-	pf[0].fd = infd;
-	pf[0].events = POLL_IN;
-	pf[1].fd = mosquitto_socket(mosq);
-	pf[1].events = POLL_IN;
+	libt_add_timeout(0, mqtt_maintenance, mosq);
+	libe_add_fd(mosquitto_socket(mosq), recvd_mosq, mosq);
 
-	while (1) {
-		ret = poll(pf, 2, 1000);
-		if (ret < 0 && errno == EINTR)
-			continue;
-		if (ret < 0)
-			mylog(LOG_ERR, "poll ...");
-		if (pf[0].revents) {
-			/* read input events */
-			ret = read(infd, evs, sizeof(evs));
-			if (ret < 0)
-				mylog(LOG_ERR, "read %s: %s", inputdev, ESTR(errno));
-			nevs = ret/sizeof(*evs);
-			for (j = 0; j < nevs; ++j) {
-				if (evs[j].type == EV_SYN || evs[j].type == EV_MSC)
-					/* ignore SYN events here */
-					continue;
-				cnt = 0;
-				for (it = items; it; it = it->next) {
-					if (it->evtype != evs[j].type || it->evcode != evs[j].code)
-						continue;
-					sprintf(valuestr, "%i", evs[j].value);
-					pubitem(it, valuestr);
-					++cnt;
-				}
-				if (mqtt_prefix && evs[j].type == EV_KEY) {
-					char *topic;
-
-					asprintf(&topic, "%s/key/%u", mqtt_prefix, evs[j].code);
-					sprintf(valuestr, "%i", evs[j].value);
-					ret = mosquitto_publish(mosq, NULL, topic, strlen(valuestr), valuestr, mqtt_qos, 0);
-					if (ret < 0)
-						mylog(LOG_ERR, "mosquitto_publish %s: %s", topic, mosquitto_strerror(ret));
-					free(topic);
-					++cnt;
-				}
-				if (!cnt) {
-					sprintf(valuestr, "%u:%u %i", evs[j].type, evs[j].code, evs[j].value);
-					ret = mosquitto_publish(mosq, NULL, mqtt_unknown_topic, strlen(valuestr), valuestr, mqtt_qos, 0);
-					if (ret < 0)
-						mylog(LOG_ERR, "mosquitto_publish %s: %s", mqtt_unknown_topic, mosquitto_strerror(ret));
-				}
-			}
-		}
-		if (pf[1].revents) {
-			/* mqtt read ... */
-			ret = mosquitto_loop_read(mosq, 1);
-			if (ret)
-				mylog(LOG_ERR, "mosquitto_loop_read: %s", mosquitto_strerror(ret));
-		}
-		/* mosquitto things to do each iteration */
-		ret = mosquitto_loop_misc(mosq);
-		if (ret)
-			mylog(LOG_ERR, "mosquitto_loop_misc: %s", mosquitto_strerror(ret));
-		if (mosquitto_want_write(mosq)) {
-			ret = mosquitto_loop_write(mosq, 1);
-			if (ret)
-				mylog(LOG_ERR, "mosquitto_loop_write: %s", mosquitto_strerror(ret));
-		}
+	for (; !sigterm; ) {
+		libt_flush();
+		mosq_update_flags();
+		ret = libe_wait(libt_get_waittime());
+		if (ret >= 0)
+			libe_flush();
 	}
+
 	return 0;
 }

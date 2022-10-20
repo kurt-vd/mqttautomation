@@ -43,7 +43,10 @@ mqttiio: LDLIBS+= -lm
 mqttiio: common.o lib/libt.o lib/libe.o
 
 mqttimport: common.o
-mqttinputevent: common.o
+mqttinputevent: \
+		lib/libt.o \
+		lib/libe.o \
+		common.o
 
 mqttled: common.o lib/libt.o
 

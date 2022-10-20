@@ -203,12 +203,14 @@ static void drop_item(struct item *it, int pubnull)
 	free(it);
 }
 
-static void pubitem(struct item *it, const char *payload)
+static void pubitem(struct item *it, int value)
 {
 	int ret;
+	char payload[32];
 
-	if (it->asbutton && strcmp(payload, "1"))
+	if (it->asbutton && value == 1)
 		return;
+	sprintf(payload, "%i", value);
 	/* publish, volatile for buttons, retained for the rest */
 	ret = mosquitto_publish(mosq, NULL, it->topic, strlen(payload), payload, mqtt_qos, !it->asbutton);
 	if (ret < 0)
@@ -243,13 +245,9 @@ static void pubinitial(struct item *it)
 		/* load current state */
 		if (ioctl(infd, ioctls[it->evtype], state) < 0)
 			mylog(LOG_ERR, "ioctl %s EVIOCG{KEY,SW}: %s", inputdev, ESTR(errno));
-		sprintf(buf, "%i", getbit(it->evcode, state));
+		pubitem(it, getbit(it->evcode, state));
 		break;
-	default:
-		/* return without publishing */
-		return;
 	}
-	pubitem(it, buf);
 }
 
 static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitto_message *msg)
@@ -319,8 +317,7 @@ static void input_handler(int fd, void *dat)
 		for (it = items; it; it = it->next) {
 			if (it->evtype != evs[j].type || it->evcode != evs[j].code)
 				continue;
-			sprintf(valuestr, "%i", evs[j].value);
-			pubitem(it, valuestr);
+			pubitem(it, evs[j].value);
 			++cnt;
 		}
 		if (mqtt_prefix && evs[j].type == EV_KEY) {

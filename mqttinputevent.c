@@ -104,6 +104,11 @@ struct item {
 	int evtype;
 	int evcode;
 	int asbutton;
+	/* debounce-alike */
+	double throttle;
+	int throttled;
+	int value;
+	int newvalue;
 };
 
 struct item *items;
@@ -208,6 +213,7 @@ static void pubitem(struct item *it, int value)
 	int ret;
 	char payload[32];
 
+	it->value = value;
 	if (it->asbutton && value == 1)
 		return;
 	sprintf(payload, "%i", value);
@@ -217,11 +223,30 @@ static void pubitem(struct item *it, int value)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->topic, mosquitto_strerror(ret));
 }
 
+static void item_throttled(void *dat)
+{
+	struct item *it = dat;
+
+	it->throttled = 0;
+	if (it->value != it->newvalue)
+		pubitem(it, it->newvalue);
+}
+static void item_event(struct item *it, int value)
+{
+	it->newvalue = value;
+	if (it->throttled)
+		return;
+	pubitem(it, value);
+	if (!isnan(it->throttle)) {
+		libt_add_timeout(it->throttle, item_throttled, it);
+		it->throttled = 1;
+	}
+}
+
 #define getbit(x, vec)	((vec[(x)/8] >> ((x) % 8)) & 1)
 static void pubinitial(struct item *it)
 {
 	static uint8_t state[KEY_CNT/8+1];
-	static char buf[32];
 
 	/* load supported events */
 	if (ioctl(infd, EVIOCGBIT(it->evtype, sizeof(state)), state) < 0)
@@ -254,6 +279,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 {
 	int forme;
 	char *event;
+	char *tok;
 	struct item *it;
 
 	if (!strcmp(msg->topic, "tools/loglevel")) {
@@ -276,6 +302,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		mylog(LOG_INFO, "new inputevent for %s", it->topic);
 		/* process new inputevent */
 		it->asbutton = 0;
+		it->throttle = NAN;
 		if (!strncmp(event, "button:", 7)) {
 			it->evtype = EV_KEY;
 			it->evcode = strtoul(event+7, NULL, 0);
@@ -293,6 +320,14 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			mylog(LOG_WARNING, "unparsed inputevent for %s '%s'", it->topic, event);
 		if (!it->evtype)
 			mylog(LOG_WARNING, "inputevent for %s is invalid!, %u:%u", it->topic, it->evtype, it->evcode);
+
+		for (tok = strtok(NULL, " \t"); tok; tok = strtok(NULL, " \t"))
+		if (!strncmp(tok, "throttle=", 9)) {
+			it->throttle = strtod(tok+9, NULL);
+
+		} else {
+			mylog(LOG_WARNING, "property '%s' unknown for %s", tok, it->topic);
+		}
 		pubinitial(it);
 	}
 }
@@ -317,7 +352,7 @@ static void input_handler(int fd, void *dat)
 		for (it = items; it; it = it->next) {
 			if (it->evtype != evs[j].type || it->evcode != evs[j].code)
 				continue;
-			pubitem(it, evs[j].value);
+			item_event(it, evs[j].value);
 			++cnt;
 		}
 		if (mqtt_prefix && evs[j].type == EV_KEY) {

@@ -150,7 +150,7 @@ static int test_nodename(const char *nodename)
 	/* test node name */
 	static char mynodename[128];
 
-	if (!nodename)
+	if (!nodename || !strcmp(nodename, ".") || !strcmp(nodename, "*"))
 		/* empty nodename matches always, for local hosts */
 		return !strcmp(mqtt_host, "localhost") ||
 			!strncmp(mqtt_host, "127.", 4) ||

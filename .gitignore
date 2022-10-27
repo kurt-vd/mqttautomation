@@ -2,6 +2,7 @@
 /mqtt1wtemp
 /mqttapa102led
 /mqttbridge
+/mqttfile
 /mqttiio
 /mqttinputevent
 /mqttimport

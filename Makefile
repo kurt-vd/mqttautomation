@@ -2,6 +2,7 @@ PROGS	= mqttinputevent
 PROGS	+= mqtt1wtemp
 PROGS	+= mqttapa102led
 PROGS	+= mqttbridge
+PROGS	+= mqttfile
 PROGS	+= mqttiio
 PROGS	+= mqttimport
 PROGS	+= mqttled
@@ -38,6 +39,10 @@ mqttapa102led: common.o lib/libt.o
 mqttbridge: common.o lib/libt.o \
 	lib/libe.o \
 	lib/liburi.o
+
+mqttfile: \
+		lib/libt.o \
+		common.o
 
 mqttiio: LDLIBS+= -lm
 mqttiio: common.o lib/libt.o lib/libe.o

@@ -358,7 +358,7 @@ static void input_handler(int fd, void *dat)
 			item_event(it, evs[j].value);
 			++cnt;
 		}
-		if (mqtt_prefix && evs[j].type == EV_KEY) {
+		if (!cnt && mqtt_prefix && evs[j].type == EV_KEY) {
 			char *topic;
 
 			asprintf(&topic, "%s/key/%u", mqtt_prefix, evs[j].code);

@@ -227,9 +227,12 @@ static void item_throttled(void *dat)
 {
 	struct item *it = dat;
 
-	it->throttled = 0;
-	if (it->value != it->newvalue)
+	if (it->value != it->newvalue) {
 		pubitem(it, it->newvalue);
+		libt_add_timeout(it->throttle, item_throttled, it);
+	} else {
+		it->throttled = 0;
+	}
 }
 static void item_event(struct item *it, int value)
 {

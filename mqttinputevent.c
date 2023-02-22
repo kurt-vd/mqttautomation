@@ -227,9 +227,12 @@ static void item_throttled(void *dat)
 {
 	struct item *it = dat;
 
-	it->throttled = 0;
-	if (it->value != it->newvalue)
+	if (it->value != it->newvalue) {
 		pubitem(it, it->newvalue);
+		libt_add_timeout(it->throttle, item_throttled, it);
+	} else {
+		it->throttled = 0;
+	}
 }
 static void item_event(struct item *it, int value)
 {
@@ -355,7 +358,7 @@ static void input_handler(int fd, void *dat)
 			item_event(it, evs[j].value);
 			++cnt;
 		}
-		if (mqtt_prefix && evs[j].type == EV_KEY) {
+		if (!cnt && mqtt_prefix && evs[j].type == EV_KEY) {
 			char *topic;
 
 			asprintf(&topic, "%s/key/%u", mqtt_prefix, evs[j].code);

@@ -375,6 +375,8 @@ redirected:
 #define SETFL_PUBLISH	(1 << 0)
 /* change the local end of redirected led */
 #define SETFL_LOCAL	(1 << 1)
+/* relative change */
+#define SETFL_REL	(1 << 2)
 static void setled(struct item *it, const char *newvalue, int flags)
 {
 	int ret, newval;
@@ -393,13 +395,16 @@ static void setled(struct item *it, const char *newvalue, int flags)
 	else
 		newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
 
+	if (flags & SETFL_REL)
+		newval = it->value + newval;
+
 	if (is_virtual(it)) {
 		/* do nothing, without backend */
 	} else if (is_redir(it)) {
 		/* a redirecting led */
 		if (!(flags & SETFL_LOCAL)) {
 			if (it->flags & FL_SHELLY)
-				newvalue = newval ? "on" : "off";
+				newvalue = (newval > 0) ? "on" : "off";
 
 			/* redirect to remote led */
 			mylog(LOG_DEBUG, "%s > %s", it->redirwrtopic, newvalue ?: "''");
@@ -409,18 +414,27 @@ static void setled(struct item *it, const char *newvalue, int flags)
 			return;
 		} else {
 			if (it->flags & FL_SHELLY)
-				newvalue = newval ? "1" : "0";
+				newvalue = (newval > 0) ? "1" : "0";
 		}
 
 	} else if (!it->sysfsdir) {
 		/* don't ack the led */
 		return;
 	} else if (endp > newvalue) {
+		int validval;
+
+		if (newval < 0)
+			validval = 0;
+		else if (newval > it->maxvalue)
+			validval = it->maxvalue;
+		else
+			validval = newval;
+
 		if (!strstr(it->sysfsdir, "/backlight/")) {
 			if (attr_write("none", "%s/trigger", it->sysfsdir) < 0)
 				return;
 		}
-		sprintf(buf, "%i", newval);
+		sprintf(buf, "%i", validval);
 		if (attr_write(buf, "%s/brightness", it->sysfsdir) < 0)
 			return;
 	} else {
@@ -516,6 +530,11 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		/* this is the write topic */
 		if (!msg->retain)
 			setled(it, msg->payload, SETFL_PUBLISH);
+
+	} else if ((it = get_item(msg->topic, "/add", 0)) != NULL) {
+		/* this is the write topic */
+		if (!msg->retain)
+			setled(it, msg->payload, SETFL_PUBLISH | SETFL_REL);
 
 	} else {
 		if ((!mqtt_write_suffix || msg->retain) &&

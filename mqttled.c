@@ -382,6 +382,8 @@ static void setled(struct item *it, const char *newvalue, int flags)
 	int ret, newval;
 	char buf[16], *endp;
 
+	/* protect for NULL str */
+	newvalue = newvalue ?: "";
 
 	if (!it->initialized)
 		libt_remove_timeout(led_initial_value, it);
@@ -393,7 +395,7 @@ static void setled(struct item *it, const char *newvalue, int flags)
 		newval = !strcmp(newvalue, "on");
 
 	else
-		newval = strtod(newvalue ?: "", &endp)*it->maxvalue;
+		newval = strtod(newvalue, &endp)*it->maxvalue;
 
 	if (flags & SETFL_REL)
 		newval = it->value + newval;

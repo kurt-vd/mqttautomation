@@ -371,10 +371,15 @@ redirected:
 	it->maxvalue = attr_read(255, "%s/max_brightness", it->sysfsdir);
 }
 
-static void setled(struct item *it, const char *newvalue, int republish, int forcelocal)
+/* publish final value */
+#define SETFL_PUBLISH	(1 << 0)
+/* change the local end of redirected led */
+#define SETFL_LOCAL	(1 << 1)
+static void setled(struct item *it, const char *newvalue, int flags)
 {
 	int ret, newval;
 	char buf[16], *endp;
+
 
 	if (!it->initialized)
 		libt_remove_timeout(led_initial_value, it);
@@ -382,7 +387,7 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 	if (!strcmp(newvalue, "toggle"))
 		newval = !it->value;
 
-	else if (forcelocal && (it->flags & FL_SHELLY))
+	else if ((flags & SETFL_LOCAL) && (it->flags & FL_SHELLY))
 		newval = !strcmp(newvalue, "on");
 
 	else
@@ -392,7 +397,7 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 		/* do nothing, without backend */
 	} else if (is_redir(it)) {
 		/* a redirecting led */
-		if (!forcelocal) {
+		if (!(flags & SETFL_LOCAL)) {
 			if (it->flags & FL_SHELLY)
 				newvalue = newval ? "on" : "off";
 
@@ -445,7 +450,7 @@ static void setled(struct item *it, const char *newvalue, int republish, int for
 	}
 
 	it->value = newval;
-	if (!it->initialized || (republish && mqtt_write_suffix)) {
+	if (!it->initialized || ((flags & SETFL_PUBLISH) && mqtt_write_suffix)) {
 		newvalue = mydtostr(newval * 1.0 / it->maxvalue);
 		it->initialized = 1;
 		/* publish, retained when writing the topic, volatile (not retained) when writing to another topic */
@@ -510,21 +515,21 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	} else if ((it = get_item(msg->topic, mqtt_write_suffix, 0)) != NULL) {
 		/* this is the write topic */
 		if (!msg->retain)
-			setled(it, msg->payload, 1, 0);
+			setled(it, msg->payload, SETFL_PUBLISH);
 
 	} else {
 		if ((!mqtt_write_suffix || msg->retain) &&
 			(it = get_item(msg->topic, NULL, 0)) != NULL) {
 			if (is_physical(it))
 				/* this is the main led topic */
-				setled(it, msg->payload, 0, 0);
+				setled(it, msg->payload, 0);
 		}
 
 		/* test for redirected leds */
 		for (it = items; it; it = it->next) {
 			if (it->redirtopic && !strcmp(msg->topic, it->redirtopic))
 				/* modified setled() implementation */
-				setled(it, msg->payload, 1, 1);
+				setled(it, msg->payload, SETFL_PUBLISH | SETFL_LOCAL);
 		}
 	}
 }

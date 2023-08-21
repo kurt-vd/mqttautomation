@@ -391,6 +391,22 @@ static void poort_moved(struct item *it)
 		if ((now - it->currvaltime) > (it->openstarttime-0.05)) {
 			it->currvaltime += it->openstarttime;
 			it->state = ST_OPENING;
+			if (it->stateval) {
+				it->state = ST_CLOSED;
+				it->currval = 0;
+				poort_publish(it);
+				if (posctrl(it)) {
+					if (++it->nretry > 3) {
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s open keeps failing", it->topic);
+						/* no more position control */
+						it->reqval = NAN;
+					} else {
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s: open not seen, retry ...", it->topic);
+						/* retry */
+						set_ctl(it, direction_needed(it));
+					}
+				}
+			}
 		}
 		break;
 	case ST_CLOSING:
@@ -436,10 +452,12 @@ static void on_poort_moved(void *dat)
 			poort_publish(it);
 
 			if (posctrl(it)) {
-				if (++it->nretry > 3)
-					mylog(LOG_WARNING | LOG_MQTT, "poort %s keeps failing", it->topic);
-				else {
-					mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
+				if (++it->nretry > 3) {
+					mylog(LOG_WARNING | LOG_MQTT, "poort %s close keeps failing", it->topic);
+					/* no more position control */
+					it->reqval = NAN;
+				} else {
+					mylog(LOG_WARNING | LOG_MQTT, "poort %s: closed not seen, retry ...", it->topic);
 					/* retry */
 					set_ctl(it, direction_needed(it));
 				}
@@ -527,6 +545,7 @@ static void idle_ctl(void *dat)
 	/* return to idle */
 	it->mustwait = 0;
 	mylog(LOG_INFO, "poort %s: idle bttn", it->topic);
+	poort_moved(it);
 	/* TODO: decide new action */
 	switch (it->state) {
 	case ST_CSTOPPED:
@@ -537,15 +556,14 @@ static void idle_ctl(void *dat)
 			set_ctl(it, direction_needed(it));
 		break;
 	case ST_OSTART:
+		/* don't do anything when started opening
+		 * the on_poort_moved callback is pending anyway
+		 * we should wait the openstarttime anyways
+		 */
+		break;
 	case ST_OPENING:
 	case ST_OMARGIN:
 	case ST_OPEN:
-		if (it->stateval) {
-			it->state = ST_CLOSED;
-			if (posctrl(it))
-				/* retry opening */
-				set_ctl(it, 1);
-		}
 		/* TODO: when is this triggered? */
 		if (posctrl(it) && travel_time_needed(it) < -0.5)
 			/* trigger again */
@@ -629,6 +647,8 @@ static void on_ctl_set(struct item *it)
 	int newstate;
 
 	libt_remove_timeout(on_ctl_set_timeout, it);
+	libt_remove_timeout(idle_ctl, it);
+	libt_remove_timeout(reset_ctl, it);
 	switch (it->ctltype) {
 	case PUSHBUTTON:
 		if (!it->ctlval) {
@@ -890,27 +910,35 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	} else if ((it = get_item_by_state(msg->topic)) != NULL) {
 		it->stateval = strtoul(msg->payload ?: "0", NULL, 0);
 
+		mylog(LOG_INFO, "poort %s: %s detected", it->topic, it->stateval ? "closed" : "open");
 		if (it->stateval) {
-			if (it->state == ST_CLOSING) {
-				poort_moved(it);
-				mylog(LOG_INFO, "poort %s: closing %.2lf, closed detected", it->topic, it->currval);
-			} else if (it->state == ST_CMARGIN) {
-				mylog(LOG_INFO, "poort %s: closing margin %.1lfs, closed detected", it->topic, libt_now() - it->currvaltime);
-			} else {
-				/* disable position control */
-				it->reqval = NAN;
-				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
-			}
 			switch (it->ctltype) {
 			case PUSHBUTTON:
+				if (statedirs[it->state] >= 0) {
+					/* disable position control
+					 * we now for sure that the poort is closed,
+					 * and that it was not intended
+					 * maybe someone use the RF control to open
+					 * without me knowing
+					 * so stop acting
+					 */
+					it->reqval = NAN;
+				}
 				it->currval = 0;
 				it->state = ST_CLOSED;
 				libt_remove_timeout(on_poort_moved, it);
 				poort_publish(it);
 				poort_publish_dir(it);
-				if (posctrl(it) && it->reqval > 0.1)
-					/* open the poort now */
-					set_ctl(it, direction_needed(it));
+				if (posctrl(it) && it->reqval > 0.1) {
+					/* unexepected close */
+					if (++it->nretry > 3)
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s open keeps failing", it->topic);
+					else {
+						mylog(LOG_WARNING, "poort %s: closed seen, retry ...", it->topic);
+						/* retry */
+						set_ctl(it, direction_needed(it));
+					}
+				}
 				break;
 			case MOTOR:
 				if (msg->retain) {

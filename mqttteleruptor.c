@@ -224,6 +224,10 @@ static void drop_item(struct item *it)
 	ret = mosquitto_unsubscribe(mosq, NULL, it->writetopic ?: it->topic);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
+	/* free timers */
+	libt_remove_timeout(set_teleruptor, it);
+	libt_remove_timeout(reset_teleruptor, it);
+	libt_remove_timeout(idle_teleruptor, it);
 	/* free memory */
 	free(it->topic);
 	myfree(it->writetopic);
@@ -231,10 +235,6 @@ static void drop_item(struct item *it)
 	myfree(it->ctlwrtopic);
 	free(it->statetopic);
 	free(it);
-	/* free timers */
-	libt_remove_timeout(set_teleruptor, it);
-	libt_remove_timeout(reset_teleruptor, it);
-	libt_remove_timeout(idle_teleruptor, it);
 }
 
 /* timer callbacks */

@@ -317,6 +317,11 @@ static void drop_item(struct item *it)
 			mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->homekitwrtopic, mosquitto_strerror(ret));
 	}
 
+	/* free timers */
+	libt_remove_timeout(reset_ctl, it);
+	libt_remove_timeout(idle_ctl, it);
+	libt_remove_timeout(on_poort_moved, it);
+	libt_remove_timeout(on_ctl_set_timeout, it);
 	/* free memory */
 	free(it->topic);
 	myfree(it->writetopic);
@@ -327,11 +332,6 @@ static void drop_item(struct item *it)
 	myfree(it->homekittopic);
 	myfree(it->homekitwrtopic);
 	free(it);
-	/* free timers */
-	libt_remove_timeout(reset_ctl, it);
-	libt_remove_timeout(idle_ctl, it);
-	libt_remove_timeout(on_poort_moved, it);
-	libt_remove_timeout(on_ctl_set_timeout, it);
 }
 
 static void poort_publish(struct item *it)

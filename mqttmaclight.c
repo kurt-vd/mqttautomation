@@ -239,7 +239,7 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			free(path);
 		}
 		if (!it->sysfs) {
-			mylog(LOG_INFO, "%s: %s is no MacBook light sensor", topic, tok);
+			mylog(LOG_INFO, "%s: %s is no MacBook light sensor", msg->topic, tok);
 			return;
 		}
 		mylog(LOG_INFO, "new maqlit spec for %s: %s", it->topic, it->sysfs);

@@ -41,7 +41,6 @@ static const char help_msg[] =
 	" -m, --mqtt=HOST[:PORT]Specify alternate MQTT host+port\n"
 	" -s, --suffix=STR	Give MQTT topic suffix for configuration (default '/poortcfg')\n"
 	" -S, --nosuffix	Write control topic without suffix\n"
-	" -k, --homekit=SUFFIX[,WRSUFFIX]	Report/accept 'homekit' status to this suffix\n"
 	"\n"
 	"Paramteres\n"
 	" PATTERN	A pattern to subscribe for\n"
@@ -56,7 +55,6 @@ static struct option long_opts[] = {
 	{ "mqtt", required_argument, NULL, 'm', },
 	{ "suffix", required_argument, NULL, 's', },
 	{ "nosuffix", no_argument, NULL, 'S', },
-	{ "homekit", required_argument, NULL, 'k', },
 
 	{ },
 };
@@ -80,8 +78,6 @@ static const char *const mqtt_write_suffix = "/set";
 static int no_mqtt_ctl_suffix;
 static int mqtt_keepalive = 10;
 static int mqtt_qos = 1;
-static const char *mqtt_homekit_suffix;
-static const char *mqtt_homekit_wrsuffix;
 
 /* state */
 static struct mosquitto *mosq;
@@ -126,9 +122,6 @@ struct item {
 #define MOTOR		1 /* push -1, 0 or +1 to a (H-bridge) motor */
 	/* statetopic: topic that reads back the poort */
 	char *statetopic;
-	/* homekittopic: topic to publish homekit state */
-	char *homekittopic;
-	char *homekitwrtopic;
 	/* min time between pulses, default 0.5 */
 	double idletime;
 	/* scale, # seconds to fully open/close */
@@ -266,20 +259,11 @@ static struct item *get_item(const char *topic, const char *suffix, int create)
 	if (mqtt_write_suffix)
 		asprintf(&it->writetopic, "%s%s", it->topic, mqtt_write_suffix);
 	asprintf(&it->dirtopic, "%s/dir", it->topic);
-	if (mqtt_homekit_suffix)
-		asprintf(&it->homekittopic, "%s%s", it->topic, mqtt_homekit_suffix);
-	if (mqtt_homekit_wrsuffix)
-		asprintf(&it->homekitwrtopic, "%s%s", it->topic, mqtt_homekit_wrsuffix);
 
 	/* subscribe */
 	ret = mosquitto_subscribe(mosq, NULL, it->writetopic ?: it->topic, mqtt_qos);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
-	if (it->homekitwrtopic) {
-		ret = mosquitto_subscribe(mosq, NULL, it->homekitwrtopic, mqtt_qos);
-		if (ret)
-			mylog(LOG_ERR, "mosquitto_subscribe '%s': %s", it->homekitwrtopic, mosquitto_strerror(ret));
-	}
 
 	/* insert in linked list */
 	it->next = items;
@@ -311,12 +295,12 @@ static void drop_item(struct item *it)
 	ret = mosquitto_unsubscribe(mosq, NULL, it->writetopic ?: it->topic);
 	if (ret)
 		mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->writetopic ?: it->topic, mosquitto_strerror(ret));
-	if (it->homekitwrtopic) {
-		ret = mosquitto_unsubscribe(mosq, NULL, it->homekitwrtopic);
-		if (ret)
-			mylog(LOG_ERR, "mosquitto_unsubscribe '%s': %s", it->homekitwrtopic, mosquitto_strerror(ret));
-	}
 
+	/* free timers */
+	libt_remove_timeout(reset_ctl, it);
+	libt_remove_timeout(idle_ctl, it);
+	libt_remove_timeout(on_poort_moved, it);
+	libt_remove_timeout(on_ctl_set_timeout, it);
 	/* free memory */
 	free(it->topic);
 	myfree(it->writetopic);
@@ -324,14 +308,7 @@ static void drop_item(struct item *it)
 	free(it->ctltopic);
 	myfree(it->ctlwrtopic);
 	free(it->statetopic);
-	myfree(it->homekittopic);
-	myfree(it->homekitwrtopic);
 	free(it);
-	/* free timers */
-	libt_remove_timeout(reset_ctl, it);
-	libt_remove_timeout(idle_ctl, it);
-	libt_remove_timeout(on_poort_moved, it);
-	libt_remove_timeout(on_ctl_set_timeout, it);
 }
 
 static void poort_publish(struct item *it)
@@ -368,31 +345,6 @@ static void poort_publish_dir(struct item *it)
 	ret = mosquitto_publish(mosq, NULL, it->dirtopic, strlen(buf), buf, mqtt_qos, 1);
 	if (ret < 0)
 		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->dirtopic, mosquitto_strerror(ret));
-}
-
-static void poort_publish_homekit(struct item *it)
-{
-	static const char *const strs[10] = {
-		[ST_CLOSED] = "closed",
-		[ST_CSTART] = "closing",
-		[ST_CLOSING] = "closing",
-		[ST_CMARGIN] = "closing",
-		[ST_CSTOPPED] = "stopped",
-		[ST_OPEN] = "open",
-		[ST_OSTOPPED] = "stopped",
-		[ST_OSTART] = "opening",
-		[ST_OPENING] = "opening",
-		[ST_OMARGIN] = "opening",
-	};
-	int ret;
-	const char *str = strs[it->state];
-
-	if (!it->homekittopic)
-		return;
-	mylog(LOG_INFO, "poort %s: homekit '%s'", it->topic, str);
-	ret = mosquitto_publish(mosq, NULL, it->homekittopic, strlen(str), str, mqtt_qos, 1);
-	if (ret < 0)
-		mylog(LOG_ERR, "mosquitto_publish %s: %s", it->homekittopic, mosquitto_strerror(ret));
 }
 
 /* returns the travel time needed to reach reqval */
@@ -433,14 +385,28 @@ static void poort_moved(struct item *it)
 		if ((now - it->currvaltime) > (it->closestarttime-0.05)) {
 			it->currvaltime += it->closestarttime;
 			it->state = ST_CLOSING;
-			poort_publish_homekit(it);
 		}
 		break;
 	case ST_OSTART:
 		if ((now - it->currvaltime) > (it->openstarttime-0.05)) {
 			it->currvaltime += it->openstarttime;
 			it->state = ST_OPENING;
-			poort_publish_homekit(it);
+			if (it->stateval) {
+				it->state = ST_CLOSED;
+				it->currval = 0;
+				poort_publish(it);
+				if (posctrl(it)) {
+					if (++it->nretry > 3) {
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s open keeps failing", it->topic);
+						/* no more position control */
+						it->reqval = NAN;
+					} else {
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s: open not seen, retry ...", it->topic);
+						/* retry */
+						set_ctl(it, direction_needed(it));
+					}
+				}
+			}
 		}
 		break;
 	case ST_CLOSING:
@@ -449,7 +415,6 @@ static void poort_moved(struct item *it)
 		if (it->currval < 0) {
 			it->currval = 0;
 			it->state = ST_CMARGIN;
-			poort_publish_homekit(it);
 		}
 		poort_publish(it);
 		break;
@@ -459,7 +424,6 @@ static void poort_moved(struct item *it)
 		if (it->currval > 1) {
 			it->currval = 1;
 			it->state = ST_OMARGIN;
-			poort_publish_homekit(it);
 		}
 		poort_publish(it);
 		break;
@@ -486,13 +450,14 @@ static void on_poort_moved(void *dat)
 			it->state = ST_OPEN;
 			it->currval = 1.1;
 			poort_publish(it);
-			poort_publish_homekit(it);
 
 			if (posctrl(it)) {
-				if (++it->nretry > 3)
-					mylog(LOG_WARNING | LOG_MQTT, "poort %s keeps failing", it->topic);
-				else {
-					mylog(LOG_WARNING, "poort %s: closed not seen, retry ...", it->topic);
+				if (++it->nretry > 3) {
+					mylog(LOG_WARNING | LOG_MQTT, "poort %s close keeps failing", it->topic);
+					/* no more position control */
+					it->reqval = NAN;
+				} else {
+					mylog(LOG_WARNING | LOG_MQTT, "poort %s: closed not seen, retry ...", it->topic);
 					/* retry */
 					set_ctl(it, direction_needed(it));
 				}
@@ -510,7 +475,6 @@ static void on_poort_moved(void *dat)
 			}
 			set_ctl(it, 0);
 			poort_publish_dir(it);
-			poort_publish_homekit(it);
 			break;
 		}
 		break;
@@ -527,7 +491,6 @@ static void on_poort_moved(void *dat)
 			 */
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
-			poort_publish_homekit(it);
 			if (posctrl(it) && it->reqval < 0.9)
 				set_ctl(it, direction_needed(it));
 			break;
@@ -536,7 +499,6 @@ static void on_poort_moved(void *dat)
 			set_ctl(it, 0);
 			it->state = ST_OPEN;
 			poort_publish_dir(it);
-			poort_publish_homekit(it);
 			break;
 		}
 		break;
@@ -583,6 +545,7 @@ static void idle_ctl(void *dat)
 	/* return to idle */
 	it->mustwait = 0;
 	mylog(LOG_INFO, "poort %s: idle bttn", it->topic);
+	poort_moved(it);
 	/* TODO: decide new action */
 	switch (it->state) {
 	case ST_CSTOPPED:
@@ -593,16 +556,14 @@ static void idle_ctl(void *dat)
 			set_ctl(it, direction_needed(it));
 		break;
 	case ST_OSTART:
+		/* don't do anything when started opening
+		 * the on_poort_moved callback is pending anyway
+		 * we should wait the openstarttime anyways
+		 */
+		break;
 	case ST_OPENING:
 	case ST_OMARGIN:
 	case ST_OPEN:
-		if (it->stateval) {
-			it->state = ST_CLOSED;
-			poort_publish_homekit(it);
-			if (posctrl(it))
-				/* retry opening */
-				set_ctl(it, 1);
-		}
 		/* TODO: when is this triggered? */
 		if (posctrl(it) && travel_time_needed(it) < -0.5)
 			/* trigger again */
@@ -686,6 +647,8 @@ static void on_ctl_set(struct item *it)
 	int newstate;
 
 	libt_remove_timeout(on_ctl_set_timeout, it);
+	libt_remove_timeout(idle_ctl, it);
+	libt_remove_timeout(reset_ctl, it);
 	switch (it->ctltype) {
 	case PUSHBUTTON:
 		if (!it->ctlval) {
@@ -755,7 +718,6 @@ static void on_ctl_set(struct item *it)
 	 */
 	it->state = newstate;
 	poort_publish_dir(it);
-	poort_publish_homekit(it);
 	/* start counting movement */
 	it->currvaltime = libt_now();
 	on_poort_moved(it);
@@ -940,15 +902,6 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 		else if (!msg->retain)
 			setvalue(it, strtod(msg->payload ?: "0", NULL));
 
-	} else if (!msg->retain && (it = get_item(msg->topic, mqtt_homekit_wrsuffix, 0)) != NULL) {
-		/* this is the write topic via homekit */
-		if (!msg->payloadlen)
-			stop(it);
-		else if (!strcmp(msg->payload, "open"))
-			setvalue(it, 1);
-		else if (!strcmp(msg->payload, "closed"))
-			setvalue(it, 0);
-
 	} else if ((!mqtt_write_suffix || msg->retain) &&
 			(it = get_item(msg->topic, NULL, 0)) != NULL) {
 		/* this is the main led topic */
@@ -957,28 +910,35 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 	} else if ((it = get_item_by_state(msg->topic)) != NULL) {
 		it->stateval = strtoul(msg->payload ?: "0", NULL, 0);
 
+		mylog(LOG_INFO, "poort %s: %s detected", it->topic, it->stateval ? "closed" : "open");
 		if (it->stateval) {
-			if (it->state == ST_CLOSING) {
-				poort_moved(it);
-				mylog(LOG_INFO, "poort %s: closing %.2lf, closed detected", it->topic, it->currval);
-			} else if (it->state == ST_CMARGIN) {
-				mylog(LOG_INFO, "poort %s: closing margin %.1lfs, closed detected", it->topic, libt_now() - it->currvaltime);
-			} else {
-				/* disable position control */
-				it->reqval = NAN;
-				mylog(LOG_INFO, "poort %s: closed detected", it->topic);
-			}
 			switch (it->ctltype) {
 			case PUSHBUTTON:
+				if (statedirs[it->state] >= 0) {
+					/* disable position control
+					 * we now for sure that the poort is closed,
+					 * and that it was not intended
+					 * maybe someone use the RF control to open
+					 * without me knowing
+					 * so stop acting
+					 */
+					it->reqval = NAN;
+				}
 				it->currval = 0;
 				it->state = ST_CLOSED;
 				libt_remove_timeout(on_poort_moved, it);
 				poort_publish(it);
 				poort_publish_dir(it);
-				poort_publish_homekit(it);
-				if (posctrl(it) && it->reqval > 0.1)
-					/* open the poort now */
-					set_ctl(it, direction_needed(it));
+				if (posctrl(it) && it->reqval > 0.1) {
+					/* unexepected close */
+					if (++it->nretry > 3)
+						mylog(LOG_WARNING | LOG_MQTT, "poort %s open keeps failing", it->topic);
+					else {
+						mylog(LOG_WARNING, "poort %s: closed seen, retry ...", it->topic);
+						/* retry */
+						set_ctl(it, direction_needed(it));
+					}
+				}
 				break;
 			case MOTOR:
 				if (msg->retain) {
@@ -993,7 +953,6 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 				}
 				poort_publish(it);
 				poort_publish_dir(it);
-				poort_publish_homekit(it);
 				break;
 			}
 
@@ -1001,14 +960,12 @@ static void my_mqtt_msg(struct mosquitto *mosq, void *dat, const struct mosquitt
 			if (msg->retain) {
 				mylog(LOG_WARNING, "poort %s is not closed", it->topic);
 				it->state = ST_OSTOPPED;
-				poort_publish_homekit(it);
 			} else if (it->ctltype == PUSHBUTTON) {
 				mylog(LOG_WARNING, "poort %s opened unexpectedly", it->topic);
 				/* change to direction ctl */
 				it->reqval = NAN;
 				it->state = ST_OSTART;
 				poort_publish_dir(it);
-				poort_publish_homekit(it);
 				it->currvaltime = libt_now();
 				libt_add_timeout(0.5, on_poort_moved, it);
 			} else {
@@ -1062,14 +1019,6 @@ int main(int argc, char *argv[])
 		break;
 	case 'S':
 		no_mqtt_ctl_suffix = 1;
-		break;
-	case 'k':
-		mqtt_homekit_suffix = optarg;
-		str = strchr(mqtt_homekit_suffix, ',');
-		if (str) {
-			*str++ = 0;
-			mqtt_homekit_wrsuffix = str;
-		}
 		break;
 
 	default:
